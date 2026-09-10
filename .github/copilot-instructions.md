@@ -1,0 +1,7 @@
+- This repository contains Twiddl Trivia, a Next.js App Router application built with TypeScript and Tailwind CSS.
+- Supabase provides email authentication and persistent profiles, follows, questions, and answers.
+- Server-side database operations that require elevated access use `src/lib/supabase-admin.ts`; never expose the service-role key to client code.
+- Profiles use unique usernames and can be public or private.
+- The feed contains questions from followed users created in the last 24 hours.
+- Users can answer each question only once and cannot answer their own questions.
+- Run `npm run build` after significant changes and keep documentation aligned with the current implementation.

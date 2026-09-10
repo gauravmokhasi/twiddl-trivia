@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/twiddl-bot",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
