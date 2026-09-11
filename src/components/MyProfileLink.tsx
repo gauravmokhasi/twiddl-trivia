@@ -11,8 +11,8 @@ export default function MyProfileLink() {
   }
 
   return (
-    <Link href="/profile" className="button button-secondary">
-      My Profile
+    <Link href="/profile" className="rounded-lg px-3 py-2 transition hover:bg-white/[0.06] hover:text-zinc-100">
+      Profile
     </Link>
   );
 }

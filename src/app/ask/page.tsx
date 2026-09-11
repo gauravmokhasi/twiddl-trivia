@@ -84,9 +84,10 @@ export default function AskPage() {
 
   return (
     <div className="space-y-6">
-      <section className="card max-w-2xl mx-auto">
-        <h2 className="text-2xl font-semibold">Ask your daily question</h2>
-        <p className="mt-2 text-slate-600">Ask a multiple-choice or free-text question.</p>
+      <section className="card mx-auto max-w-2xl p-6 md:p-8">
+        <p className="eyebrow">Add to the club</p>
+        <h2 className="mt-2 text-3xl font-bold tracking-tight text-zinc-100">Ask your daily question</h2>
+        <p className="mt-2 text-zinc-400">Ask a multiple-choice or free-text question.</p>
 
         {!session ? (
           <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -95,7 +96,7 @@ export default function AskPage() {
         ) : (
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">
             <fieldset className="space-y-3">
-              <legend className="text-sm font-medium text-slate-700">Question type</legend>
+              <legend className="text-sm font-medium text-zinc-300">Question type</legend>
               <label className="flex items-center gap-2">
                 <input type="radio" checked={questionType === 'multiple_choice'} onChange={() => setQuestionType('multiple_choice')} />
                 Multiple choice
@@ -107,7 +108,7 @@ export default function AskPage() {
             </fieldset>
 
             <label className="block">
-              <span className="text-sm font-medium text-slate-700">Question text</span>
+              <span className="text-sm font-medium text-zinc-300">Question text</span>
               <textarea
                 value={text}
                 onChange={(event) => setText(event.target.value)}
@@ -119,7 +120,7 @@ export default function AskPage() {
 
             {questionType === 'multiple_choice' ? <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-700">Answer choices</span>
+                <span className="text-sm font-medium text-zinc-300">Answer choices</span>
                 <button type="button" className="button button-secondary" onClick={handleAddChoice}>
                   Add choice
                 </button>
@@ -153,7 +154,7 @@ export default function AskPage() {
               ))}
             </div> : (
               <label className="block">
-                <span className="text-sm font-medium text-slate-700">Correct answer</span>
+                <span className="text-sm font-medium text-zinc-300">Correct answer</span>
                 <input
                   type="text"
                   value={correctAnswer}
@@ -165,7 +166,7 @@ export default function AskPage() {
               </label>
             )}
 
-            {message ? <p className="text-sm text-slate-700">{message}</p> : null}
+            {message ? <p className="text-sm text-zinc-300">{message}</p> : null}
 
             <button className="button button-primary" type="submit" disabled={isSaving}>
               {isSaving ? 'Saving...' : 'Submit question'}

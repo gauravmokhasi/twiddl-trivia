@@ -27,9 +27,10 @@ export default function LoginPage() {
 
   return (
     <div className="space-y-6">
-      <section className="card max-w-lg mx-auto">
-        <h1 className="text-3xl font-semibold">Sign in to Twiddl</h1>
-        <p className="mt-2 text-slate-600">Enter your email and we will send you a sign-in link.</p>
+      <section className="card mx-auto max-w-lg p-6 md:p-8">
+        <p className="eyebrow">Welcome back</p>
+        <h1 className="mt-2 text-3xl font-bold tracking-tight text-zinc-100">Sign in to Twiddl</h1>
+        <p className="mt-2 text-zinc-400">Enter your email and we will send you a sign-in link.</p>
 
         <form onSubmit={handleSignIn} className="mt-6 space-y-4">
           <label className="block text-sm font-medium text-slate-700">

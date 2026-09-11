@@ -84,75 +84,61 @@ export default async function ProfilePage({ params }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="card">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-3xl font-semibold">{user.display_name}</h2>
-            <p className="mt-2 text-slate-600">@{user.username}</p>
-            <p className="mt-3 text-slate-700">{user.bio}</p>
-            <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-600">
-              <div>
-                <span className="font-semibold text-slate-900">{followers?.length ?? 0}</span> followers
+      <section className="card relative overflow-hidden p-6 md:p-8">
+        <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-violet-500/10 blur-3xl" />
+        <div className="relative flex flex-col gap-7 md:flex-row md:items-end md:justify-between">
+          <div className="flex items-start gap-4">
+            <span className="grid h-20 w-20 shrink-0 place-items-center rounded-3xl bg-violet-500/15 text-3xl font-bold text-violet-200">{user.username.charAt(0).toUpperCase()}</span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-3xl font-bold tracking-tight text-zinc-100">{user.display_name}</h2>
+                <span className="badge badge-neutral">{user.is_public ? 'Public' : 'Private'}</span>
               </div>
-              <div>
-                <span className="font-semibold text-slate-900">{following?.length ?? 0}</span> following
-              </div>
-              <div>
-                <span className="font-semibold text-slate-900">{correctAnswers?.length ?? 0}</span> correct answers
-              </div>
-              <div>
-                <span className="font-semibold text-slate-900">{qaStreak}</span> current Q&amp;A streak
-              </div>
-              <div>
-                <span className="font-semibold text-slate-900">{user.is_public ? 'Public' : 'Private'}</span>
-              </div>
+              <p className="mt-1 text-sm text-violet-300">@{user.username}</p>
+              <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-400">{user.bio || 'A curious mind in the Twiddl universe.'}</p>
             </div>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Link href="/universe" className="button button-secondary">
-              Back to universe
-            </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/universe" className="button button-ghost text-sm">← Universe</Link>
             {isCurrentUser ? <ProfileVisibilityToggle isPublic={user.is_public} /> : null}
             {!isCurrentUser ? <ProfileButton profileId={user.id} /> : null}
           </div>
         </div>
+        <div className="relative mt-8 grid grid-cols-2 gap-4 border-t border-white/[0.07] pt-5 sm:grid-cols-4">
+          <div className="stat"><strong>{followers?.length ?? 0}</strong><span>Followers</span></div>
+          <div className="stat"><strong>{following?.length ?? 0}</strong><span>Following</span></div>
+          <div className="stat"><strong>{correctAnswers?.length ?? 0}</strong><span>Correct</span></div>
+          <div className="stat"><strong>{qaStreak}</strong><span>Q&amp;A streak</span></div>
+        </div>
       </section>
 
-      <section className="grid gap-6 md:grid-cols-2">
-        <div className="card">
-          <h3 className="text-2xl font-semibold">Followers</h3>
+      <section className="grid gap-5 md:grid-cols-2">
+        <div className="card p-5">
+          <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Followers</h3><span className="text-sm text-zinc-500">{followers?.length ?? 0}</span></div>
           {!followers || followers.length === 0 ? (
             <p className="mt-4 text-slate-700">No one is following this user yet.</p>
           ) : (
             <div className="mt-4 space-y-3">
               {followers.map((follower) => (
-                <Link
-                  key={follower.id}
-                  href={`/profile/${follower.username}`}
-                  className="block rounded-2xl border border-slate-200 p-4 hover:border-sky-500 transition"
-                >
-                  <p className="font-semibold">{follower.display_name}</p>
-                  <p className="mt-1 text-sm text-slate-600">@{follower.username}</p>
+                <Link key={follower.id} href={`/profile/${follower.username}`} className="flex items-center gap-3 border-b border-white/[0.06] py-3 last:border-0 hover:text-violet-300">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/[0.06] text-sm font-bold text-violet-200">{follower.username.charAt(0).toUpperCase()}</span>
+                  <span><span className="block text-sm font-semibold text-zinc-200">{follower.display_name}</span><span className="block text-xs text-zinc-500">@{follower.username}</span></span>
                 </Link>
               ))}
             </div>
           )}
         </div>
 
-        <div className="card">
-          <h3 className="text-2xl font-semibold">Following</h3>
+        <div className="card p-5">
+          <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Following</h3><span className="text-sm text-zinc-500">{following?.length ?? 0}</span></div>
           {!following || following.length === 0 ? (
             <p className="mt-4 text-slate-700">This user is not following anyone yet.</p>
           ) : (
             <div className="mt-4 space-y-3">
               {following.map((followee) => (
-                <Link
-                  key={followee.id}
-                  href={`/profile/${followee.username}`}
-                  className="block rounded-2xl border border-slate-200 p-4 hover:border-sky-500 transition"
-                >
-                  <p className="font-semibold">{followee.display_name}</p>
-                  <p className="mt-1 text-sm text-slate-600">@{followee.username}</p>
+                <Link key={followee.id} href={`/profile/${followee.username}`} className="flex items-center gap-3 border-b border-white/[0.06] py-3 last:border-0 hover:text-violet-300">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/[0.06] text-sm font-bold text-violet-200">{followee.username.charAt(0).toUpperCase()}</span>
+                  <span><span className="block text-sm font-semibold text-zinc-200">{followee.display_name}</span><span className="block text-xs text-zinc-500">@{followee.username}</span></span>
                 </Link>
               ))}
             </div>
@@ -160,16 +146,16 @@ export default async function ProfilePage({ params }: Props) {
         </div>
       </section>
 
-      <section className="card">
-        <h3 className="text-2xl font-semibold">Past questions</h3>
+      <section className="card p-5 md:p-6">
+        <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Past questions</h3><span className="text-sm text-zinc-500">Your archive</span></div>
         {!typedUserQuestions || typedUserQuestions.length === 0 ? (
           <p className="mt-4 text-slate-700">This user has not asked any questions yet.</p>
         ) : (
           <div className="mt-4 space-y-4">
             {typedUserQuestions.map((question) => (
-              <Link key={question.id} href={`/questions/${question.id}`} className="block rounded-2xl border border-slate-200 p-4 hover:border-sky-500 transition">
-                <p className="font-semibold">{question.text}</p>
-                <p className="mt-2 text-sm text-slate-500">{formatRelativeDate(question.created_at)}</p>
+              <Link key={question.id} href={`/questions/${question.id}`} className="block border-b border-white/[0.06] py-4 last:border-0 hover:text-violet-300 transition">
+                <p className="font-semibold text-zinc-200">{question.text}</p>
+                <p className="mt-1 text-xs text-zinc-500">{formatRelativeDate(question.created_at)}</p>
               </Link>
             ))}
           </div>

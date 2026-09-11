@@ -108,7 +108,7 @@ export default function QuestionAnswerForm({ question, authorId }: Props) {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <fieldset className="space-y-3">
-        <legend className="text-base font-semibold">Choose the answer below</legend>
+        <legend className="text-base font-semibold text-zinc-200">Choose the answer below</legend>
 
         {question.question_type === 'free_text' ? (
           <input
@@ -120,7 +120,7 @@ export default function QuestionAnswerForm({ question, authorId }: Props) {
             placeholder="Type your answer"
           />
         ) : question.choices.map((choice, index) => (
-          <label key={choice} className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 hover:border-sky-500 transition">
+          <label key={choice} className="flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.025] px-4 py-3 transition hover:border-violet-400/50 hover:bg-violet-500/[0.06]">
             <input
               type="radio"
               name="answer"
@@ -130,13 +130,13 @@ export default function QuestionAnswerForm({ question, authorId }: Props) {
               disabled={isLocked}
               className="h-4 w-4 text-sky-600"
             />
-            <span className="text-slate-700">{String.fromCharCode(65 + index)}. {choice}</span>
+            <span className="text-zinc-300">{String.fromCharCode(65 + index)}. {choice}</span>
           </label>
         ))}
       </fieldset>
 
       {statusMessage ? (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{statusMessage}</div>
+        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-zinc-300">{statusMessage}</div>
       ) : null}
 
       <button type="submit" className="button button-primary" disabled={isSubmitting || isLocked}>
