@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createRouteSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { answerQuestionAsBot, ensureTwiddlBot } from '@/lib/twiddl-bot';
+import { getDailyQuestionStatus } from '@/lib/daily-question';
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -25,25 +26,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
   }
 
-  const { data: existingQuestionsData, error: queryError } = await supabaseAdmin
-    .from('questions')
-    .select('id, created_at')
-    .eq('author_id', session.user.id)
-    .order('created_at', { ascending: false })
-    .limit(1);
-  const existingQuestions = existingQuestionsData as { id: string; created_at: string }[] | null;
+  const { hasAsked, error: dailyQuestionError } = await getDailyQuestionStatus(session.user.id);
 
-  if (queryError) {
-    return NextResponse.json({ error: queryError.message }, { status: 500 });
+  if (dailyQuestionError) {
+    return NextResponse.json({ error: dailyQuestionError }, { status: 500 });
   }
 
-  const latestQuestion = existingQuestions?.[0];
-  if (latestQuestion) {
-    const lastCreated = new Date(latestQuestion.created_at).getTime();
-    const diffHours = (Date.now() - lastCreated) / (1000 * 60 * 60);
-    if (diffHours < 24) {
-      return NextResponse.json({ error: 'You can only ask one question every 24 hours.' }, { status: 403 });
-    }
+  if (hasAsked) {
+    return NextResponse.json({ error: 'You can only ask one question every 24 hours.' }, { status: 403 });
   }
 
   const { data: insertedQuestion, error: insertError } = await (supabaseAdmin.from('questions') as any).insert({

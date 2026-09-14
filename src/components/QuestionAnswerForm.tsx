@@ -4,12 +4,23 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Question } from '@/lib/database.types';
 
+export type AnswerOutcome = {
+  isCorrect: boolean;
+  selectedChoiceIndex: number | null;
+  answerText: string | null;
+  correctText: string | null;
+};
+
 type Props = {
   question: Question;
   authorId: string;
+  /** When provided, the parent owns the result UI (used by the one-question-at-a-time flow). */
+  onResult?: (outcome: AnswerOutcome) => void;
+  /** Skip the "already answered" lookup when the caller already filtered answered questions. */
+  skipExistingAnswerCheck?: boolean;
 };
 
-export default function QuestionAnswerForm({ question, authorId }: Props) {
+export default function QuestionAnswerForm({ question, authorId, onResult, skipExistingAnswerCheck }: Props) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -19,7 +30,7 @@ export default function QuestionAnswerForm({ question, authorId }: Props) {
   const isAuthor = session?.user?.id === authorId;
 
   useEffect(() => {
-    if (isAuthor) return;
+    if (isAuthor || skipExistingAnswerCheck) return;
 
     const loadExistingAnswer = async () => {
       if (!session?.user?.id) return;
@@ -43,7 +54,7 @@ export default function QuestionAnswerForm({ question, authorId }: Props) {
     };
 
     loadExistingAnswer();
-  }, [question, session, isAuthor]);
+  }, [question, session, isAuthor, skipExistingAnswerCheck]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -85,6 +96,17 @@ export default function QuestionAnswerForm({ question, authorId }: Props) {
     }
 
     setIsLocked(true);
+
+    if (onResult) {
+      onResult({
+        isCorrect: Boolean(data.isCorrect),
+        selectedChoiceIndex: data.selectedChoiceIndex ?? null,
+        answerText: data.answerText ?? null,
+        correctText: question.correct_answer ?? question.choices[data.correctAnswerIndex] ?? null,
+      });
+      return;
+    }
+
     if (data.isCorrect) {
       setStatusMessage(question.question_type === 'free_text'
         ? 'Nice! Your answer is correct.'

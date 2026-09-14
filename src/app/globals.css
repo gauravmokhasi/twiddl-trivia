@@ -172,11 +172,46 @@ textarea:focus {
   }
 }
 
+@keyframes twiddl-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-pop {
+  animation: twiddl-pop 220ms ease-out both;
+}
+
+@keyframes twiddl-float {
+  0%,
+  100% {
+    transform: translateY(-5px) rotate(-1.2deg);
+  }
+  50% {
+    transform: translateY(6px) rotate(1.2deg);
+  }
+}
+
+.animate-float {
+  animation: twiddl-float 7s ease-in-out infinite;
+}
+
+.animate-float-slow {
+  animation: twiddl-float 10s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

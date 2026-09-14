@@ -8,11 +8,13 @@ import type { Database } from '@/lib/database.types';
 type AuthContextValue = {
   session: Session | null;
   supabase: SupabaseClient<Database>;
+  isLoading: boolean;
 };
 
 const AuthContext = createContext<AuthContextValue>({
   session: null,
   supabase: supabaseBrowser,
+  isLoading: true,
 });
 
 export function useAuth() {
@@ -21,16 +23,20 @@ export function useAuth() {
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
 
     supabaseBrowser.auth.getSession().then(({ data }) => {
-      if (mounted) setSession(data.session);
+      if (!mounted) return;
+      setSession(data.session);
+      setIsLoading(false);
     });
 
     const { data: subscription } = supabaseBrowser.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
+      setIsLoading(false);
     });
 
     return () => {
@@ -39,5 +45,5 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     };
   }, []);
 
-  return <AuthContext.Provider value={{ session, supabase: supabaseBrowser }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ session, supabase: supabaseBrowser, isLoading }}>{children}</AuthContext.Provider>;
 }
