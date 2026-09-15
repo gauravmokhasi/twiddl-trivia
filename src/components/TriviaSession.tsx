@@ -4,17 +4,39 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import QuestionAnswerForm, { type AnswerOutcome } from '@/components/QuestionAnswerForm';
 import { formatRelativeDate } from '@/lib/utils';
-import type { Question } from '@/lib/database.types';
+import type { SessionQuestion } from '@/lib/session-questions';
 
-export type SessionQuestion = Question & { author_username: string };
+type EndState = {
+  eyebrow?: string;
+  title?: string;
+  message?: string;
+  primaryLabel?: string;
+  primaryHref?: string;
+  secondaryLabel?: string;
+  secondaryHref?: string;
+};
 
 type Props = {
   questions: SessionQuestion[];
+  /** Small label above the question, for example "Explore". */
+  headerLabel?: string;
+  /** Copy and links for the end-of-queue screen. */
+  endState?: EndState;
+};
+
+const DEFAULT_END_STATE = {
+  eyebrow: 'All caught up',
+  title: "You're caught up.",
+  message: "You've answered everything in your 24-hour feed.",
+  primaryLabel: 'Explore the Universe',
+  primaryHref: '/universe',
+  secondaryLabel: 'Start exploring',
+  secondaryHref: '/explore',
 };
 
 type Phase = 'fresh' | 'second' | 'done';
 
-export default function TriviaSession({ questions }: Props) {
+export default function TriviaSession({ questions, headerLabel = "Today's twiddl", endState }: Props) {
   const [phase, setPhase] = useState<Phase>(questions.length > 0 ? 'fresh' : 'done');
   const [plan, setPlan] = useState<string[]>(() => questions.map((question) => question.id));
   const [cursor, setCursor] = useState(0);
@@ -55,14 +77,16 @@ export default function TriviaSession({ questions }: Props) {
   const currentQuestion = phase === 'done' ? null : questionsById.get(plan[cursor] ?? '') ?? null;
 
   if (!currentQuestion) {
+    const end = { ...DEFAULT_END_STATE, ...endState };
+
     return (
       <section className="mx-auto max-w-2xl space-y-4 pt-12 text-center">
-        <p className="eyebrow">All caught up</p>
-        <h2 className="text-3xl font-bold tracking-tight text-zinc-50">You&apos;re caught up.</h2>
-        <p className="text-zinc-400">You&apos;ve answered everything in your 24-hour feed.</p>
+        <p className="eyebrow">{end.eyebrow}</p>
+        <h2 className="text-3xl font-bold tracking-tight text-zinc-50">{end.title}</h2>
+        <p className="text-zinc-400">{end.message}</p>
         <div className="flex flex-col items-center gap-3 pt-2 sm:flex-row sm:justify-center">
-          <Link className="button button-primary w-full sm:w-auto" href="/universe">Explore the Universe</Link>
-          <Link className="button button-secondary w-full sm:w-auto" href="/universe">Find more questions</Link>
+          <Link className="button button-primary w-full sm:w-auto" href={end.primaryHref}>{end.primaryLabel}</Link>
+          <Link className="button button-secondary w-full sm:w-auto" href={end.secondaryHref}>{end.secondaryLabel}</Link>
         </div>
         <p className="text-sm text-zinc-500">People you discover may have older unanswered questions waiting on their profiles.</p>
       </section>
@@ -82,7 +106,7 @@ export default function TriviaSession({ questions }: Props) {
             <span className="text-xs text-zinc-500">You passed this one earlier.</span>
           </div>
         ) : (
-          <p className="eyebrow">Today&apos;s twiddl</p>
+          <p className="eyebrow">{headerLabel}</p>
         )}
         <span className="text-xs font-semibold text-zinc-500">{plan.length - cursor} left</span>
       </div>

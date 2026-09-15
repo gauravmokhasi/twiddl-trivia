@@ -5,18 +5,25 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { formatRelativeDate } from '@/lib/utils';
 import { currentQaStreak } from '@/lib/streak';
 import ProfileButton from '@/components/profile-button';
+import ProfileEditor from '@/components/profile-editor';
 import ProfileVisibilityToggle from '@/components/profile-visibility-toggle';
+import TriviaSession from '@/components/TriviaSession';
+import { countUnansweredQuestions, unansweredSessionQuestions } from '@/lib/session-questions';
 import type { Database } from '@/lib/database.types';
 
 type Props = {
   params: Promise<{
     username: string;
   }>;
+  searchParams: Promise<{
+    play?: string;
+  }>;
 };
 
-export default async function ProfilePage({ params }: Props) {
+export default async function ProfilePage({ params, searchParams }: Props) {
   const supabase = await createServerSupabase();
   const { username } = await params;
+  const { play } = await searchParams;
 
   // get session to determine the current user
   const { data: { session } } = await supabase.auth.getSession();
@@ -37,6 +44,63 @@ export default async function ProfilePage({ params }: Props) {
   // If profile is private and requester is not owner, show 404
   if (!user.is_public && currentUserId !== user.id) {
     notFound();
+  }
+
+  // "Answer their questions" mode: one question at a time through their whole back catalogue.
+  if (play) {
+    const backToProfile = (
+      <section className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 pt-6">
+        <Link href={`/profile/${user.username}`} className="button button-ghost text-sm">← Back to @{user.username}&apos;s profile</Link>
+        <span className="text-xs text-zinc-500">Their questions, one at a time</span>
+      </section>
+    );
+
+    if (!currentUserId) {
+      return (
+        <div className="space-y-6">
+          <section className="card mx-auto max-w-2xl p-6 md:p-8">
+            <p className="eyebrow">Answer their questions</p>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight text-zinc-100">Sign in to answer</h2>
+            <p className="mt-2 text-zinc-400">You need an account before you can answer @{user.username}&apos;s questions.</p>
+            <Link className="button button-primary mt-5" href="/login">Sign in</Link>
+          </section>
+        </div>
+      );
+    }
+
+    if (currentUserId === user.id) {
+      return (
+        <div className="space-y-6">
+          <section className="card mx-auto max-w-2xl p-6 md:p-8">
+            <p className="eyebrow">Answer your questions</p>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight text-zinc-100">These are your own questions</h2>
+            <p className="mt-2 text-zinc-400">You cannot answer questions you asked yourself. Your answers live on your profile.</p>
+            <Link className="button button-primary mt-5" href={`/profile/${user.username}`}>Back to profile</Link>
+          </section>
+        </div>
+      );
+    }
+
+    const questions = await unansweredSessionQuestions({ userId: currentUserId, authorIds: [user.id] });
+
+    return (
+      <div>
+        {backToProfile}
+        <TriviaSession
+          questions={questions}
+          headerLabel={`@${user.username} asked`}
+          endState={{
+            eyebrow: 'All caught up',
+            title: `You are caught up on @${user.username}.`,
+            message: `You have answered every question @${user.username} has ever asked.`,
+            primaryLabel: 'Back to their profile',
+            primaryHref: `/profile/${user.username}`,
+            secondaryLabel: 'Explore the Universe',
+            secondaryHref: '/universe',
+          }}
+        />
+      </div>
+    );
   }
 
   // Fetch questions and follow relations using admin client
@@ -81,6 +145,9 @@ export default async function ProfilePage({ params }: Props) {
   ]);
 
   const isCurrentUser = currentUserId === user.id;
+  const unansweredCount = currentUserId && !isCurrentUser && typedUserQuestions && typedUserQuestions.length > 0
+    ? await countUnansweredQuestions(currentUserId, typedUserQuestions.map((question) => question.id))
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -101,9 +168,18 @@ export default async function ProfilePage({ params }: Props) {
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/universe" className="button button-ghost text-sm">← Universe</Link>
             {isCurrentUser ? <ProfileVisibilityToggle isPublic={user.is_public} /> : null}
+            {!isCurrentUser && unansweredCount > 0 ? (
+              <Link href={`/profile/${user.username}?play=1`} className="button button-primary text-sm">
+                Answer {unansweredCount} question{unansweredCount === 1 ? '' : 's'} →
+              </Link>
+            ) : null}
+            {!isCurrentUser && unansweredCount === 0 && (typedUserQuestions?.length ?? 0) > 0 ? (
+              <span className="text-xs text-zinc-500">You have answered all {typedUserQuestions?.length} of their questions.</span>
+            ) : null}
             {!isCurrentUser ? <ProfileButton profileId={user.id} /> : null}
           </div>
         </div>
+        {isCurrentUser ? <ProfileEditor displayName={user.display_name} bio={user.bio} /> : null}
         <div className="relative mt-8 grid grid-cols-2 gap-4 border-t border-white/[0.07] pt-5 sm:grid-cols-4">
           <div className="stat"><strong>{followers?.length ?? 0}</strong><span>Followers</span></div>
           <div className="stat"><strong>{following?.length ?? 0}</strong><span>Following</span></div>

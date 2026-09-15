@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { isAnswerCorrect } from '@/lib/answer-checker';
+import { guessAnswerFromWeb, pickChoiceFromGuess } from '@/lib/answer-guesser';
 
 export const TWIDDL_BOT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -67,11 +68,15 @@ export async function answerQuestionAsBot(question: {
 }) {
   if (question.question_type === 'multiple_choice' && question.choices.length === 0) return;
 
+  // Best effort: look the answer up on the web first, then fall back to a simple guess.
+  const webGuess = await guessAnswerFromWeb(question.text);
+  const fallbackText = question.text.split(/\s+/).slice(-1)[0]?.replace(/[^a-z0-9]/gi, '') || 'I am not sure';
+
   const selectedChoiceIndex = question.question_type === 'multiple_choice'
-    ? deterministicIndex(question.text, question.choices.length)
+    ? pickChoiceFromGuess(question.choices, webGuess) ?? deterministicIndex(question.text, question.choices.length)
     : null;
   const answerText = question.question_type === 'free_text'
-    ? question.text.split(/\s+/).slice(-1)[0]?.replace(/[^a-z0-9]/gi, '') || 'I am not sure'
+    ? webGuess?.answer ?? fallbackText
     : null;
 
   const { data: gradingData } = await supabaseAdmin

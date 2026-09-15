@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import DailyQuestionComposer from '@/components/DailyQuestionComposer';
-import TriviaSession, { type SessionQuestion } from '@/components/TriviaSession';
+import TriviaSession from '@/components/TriviaSession';
+import type { SessionQuestion } from '@/lib/session-questions';
 
 type Props = {
   hasAskedToday: boolean;
