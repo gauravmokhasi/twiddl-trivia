@@ -40,7 +40,7 @@ export default async function UniversePage() {
             <p className="mt-5 min-h-12 text-sm leading-6 text-zinc-400">{user.bio || 'A curious mind in the Twiddl universe.'}</p>
             <div className="mt-5 border-t border-white/[0.06] pt-4">
               <Link href={`/profile/${user.username}`} className="text-sm font-semibold text-zinc-300 transition hover:text-violet-300">
-                View profile <span className="ml-1 text-violet-300">→</span>
+                Check out their questions <span className="ml-1 text-violet-300">→</span>
               </Link>
             </div>
           </article>

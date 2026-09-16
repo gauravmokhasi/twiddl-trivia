@@ -28,9 +28,9 @@ const DEFAULT_END_STATE = {
   eyebrow: 'All caught up',
   title: "You're caught up.",
   message: "You've answered everything in your 24-hour feed.",
-  primaryLabel: 'Explore the Universe',
+  primaryLabel: 'Check out other users',
   primaryHref: '/universe',
-  secondaryLabel: 'Start exploring',
+  secondaryLabel: 'Explore unanswered questions',
   secondaryHref: '/explore',
 };
 

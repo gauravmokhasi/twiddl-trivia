@@ -17,13 +17,14 @@ type Props = {
   }>;
   searchParams: Promise<{
     play?: string;
+    view?: string;
   }>;
 };
 
 export default async function ProfilePage({ params, searchParams }: Props) {
   const supabase = await createServerSupabase();
   const { username } = await params;
-  const { play } = await searchParams;
+  const { view } = await searchParams;
 
   // get session to determine the current user
   const { data: { session } } = await supabase.auth.getSession();
@@ -46,40 +47,17 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     notFound();
   }
 
-  // "Answer their questions" mode: one question at a time through their whole back catalogue.
-  if (play) {
+  // Answering this user's questions is the default visit for signed-in visitors. The profile
+  // itself (counts, followers, archive) opens when the viewer asks for it with ?view=profile,
+  // or when there is nobody to answer as (signed out) or the profile belongs to the viewer.
+  // (?play=1 still works as an explicit "start answering" link.)
+  if (view !== 'profile' && currentUserId && currentUserId !== user.id) {
     const backToProfile = (
       <section className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 pt-6">
-        <Link href={`/profile/${user.username}`} className="button button-ghost text-sm">← Back to @{user.username}&apos;s profile</Link>
+        <Link href={`/profile/${user.username}?view=profile`} className="button button-ghost text-sm">← Back to @{user.username}&apos;s profile</Link>
         <span className="text-xs text-zinc-500">Their questions, one at a time</span>
       </section>
     );
-
-    if (!currentUserId) {
-      return (
-        <div className="space-y-6">
-          <section className="card mx-auto max-w-2xl p-6 md:p-8">
-            <p className="eyebrow">Answer their questions</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight text-zinc-100">Sign in to answer</h2>
-            <p className="mt-2 text-zinc-400">You need an account before you can answer @{user.username}&apos;s questions.</p>
-            <Link className="button button-primary mt-5" href="/login">Sign in</Link>
-          </section>
-        </div>
-      );
-    }
-
-    if (currentUserId === user.id) {
-      return (
-        <div className="space-y-6">
-          <section className="card mx-auto max-w-2xl p-6 md:p-8">
-            <p className="eyebrow">Answer your questions</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight text-zinc-100">These are your own questions</h2>
-            <p className="mt-2 text-zinc-400">You cannot answer questions you asked yourself. Your answers live on your profile.</p>
-            <Link className="button button-primary mt-5" href={`/profile/${user.username}`}>Back to profile</Link>
-          </section>
-        </div>
-      );
-    }
 
     const questions = await unansweredSessionQuestions({ userId: currentUserId, authorIds: [user.id] });
 
@@ -94,9 +72,9 @@ export default async function ProfilePage({ params, searchParams }: Props) {
             title: `You are caught up on @${user.username}.`,
             message: `You have answered every question @${user.username} has ever asked.`,
             primaryLabel: 'Back to their profile',
-            primaryHref: `/profile/${user.username}`,
-            secondaryLabel: 'Explore the Universe',
-            secondaryHref: '/universe',
+            primaryHref: `/profile/${user.username}?view=profile`,
+            secondaryLabel: 'Explore unanswered questions',
+            secondaryHref: '/explore',
           }}
         />
       </div>

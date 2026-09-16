@@ -117,12 +117,40 @@ export async function seedTodaysBotQuestion() {
   if (existingQuestionError) throw new Error(existingQuestionError.message);
   if (existingQuestion) return existingQuestion.id;
 
-  const questions = [
+  // The bot's question pool. The newer questions come first and the original three sit at the
+  // end, so those older ones are only reconsidered once everything newer has been used.
+  const questionPool = [
+    { text: 'What is the capital of Japan?', choices: ['Kyoto', 'Tokyo', 'Osaka'], correctAnswerIndex: 1 },
+    { text: 'Which gas do plants absorb from the atmosphere?', choices: ['Oxygen', 'Carbon dioxide', 'Nitrogen'], correctAnswerIndex: 1 },
+    { text: 'Who painted the Mona Lisa?', choices: ['Vincent van Gogh', 'Leonardo da Vinci', 'Claude Monet'], correctAnswerIndex: 1 },
+    { text: 'What is the tallest mountain on Earth?', choices: ['K2', 'Mount Everest', 'Kilimanjaro'], correctAnswerIndex: 1 },
+    { text: 'Which country hosted the 2016 Summer Olympics?', choices: ['Brazil', 'China', 'United Kingdom'], correctAnswerIndex: 0 },
+    { text: 'How many continents are there on Earth?', choices: ['Five', 'Seven', 'Nine'], correctAnswerIndex: 1 },
+    { text: 'Which instrument has 88 keys?', choices: ['Guitar', 'Piano', 'Trumpet'], correctAnswerIndex: 1 },
     { text: 'Which planet is known as the Red Planet?', choices: ['Mars', 'Venus', 'Jupiter'], correctAnswerIndex: 0 },
     { text: 'What is the largest ocean on Earth?', choices: ['Atlantic Ocean', 'Pacific Ocean', 'Indian Ocean'], correctAnswerIndex: 1 },
     { text: 'How many sides does a hexagon have?', choices: ['Five', 'Six', 'Eight'], correctAnswerIndex: 1 },
   ];
-  const question = questions[new Date().getUTCDate() % questions.length];
+
+  const { data: askedQuestionsData, error: askedQuestionsError } = await supabaseAdmin
+    .from('questions')
+    .select('text, created_at')
+    .eq('author_id', TWIDDL_BOT_ID);
+  const askedQuestions = (askedQuestionsData as { text: string; created_at: string }[] | null) ?? [];
+
+  if (askedQuestionsError) throw new Error(askedQuestionsError.message);
+
+  const askedTexts = new Set(askedQuestions.map((item) => item.text.trim().toLowerCase()));
+  const earliestAsk = (text: string) => askedQuestions
+    .filter((item) => item.text.trim().toLowerCase() === text.trim().toLowerCase())
+    .reduce((earliest, item) => Math.min(earliest, new Date(item.created_at).getTime()), Number.POSITIVE_INFINITY);
+  const neverAsked = questionPool.filter((item) => !askedTexts.has(item.text.trim().toLowerCase()));
+
+  // Never ask the same question twice. If the pool is ever exhausted, fall back to whichever
+  // question was asked longest ago so the daily feed keeps flowing.
+  const question = neverAsked.length > 0
+    ? neverAsked[0]
+    : questionPool.slice().sort((left, right) => earliestAsk(left.text) - earliestAsk(right.text))[0];
 
   const { data: insertedQuestion, error: insertError } = await (supabaseAdmin.from('questions') as any).insert({
     author_id: TWIDDL_BOT_ID,
