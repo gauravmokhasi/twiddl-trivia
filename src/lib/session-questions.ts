@@ -11,7 +11,7 @@ type Options = {
   authorIds?: string[];
   /** Only include questions created at or after this ISO timestamp. */
   sinceIso?: string;
-  /** Only include public questions (used by the platform-wide Explore queue). */
+  /** Only include public questions, skipping private profiles the viewer does not follow. */
   publicOnly?: boolean;
 };
 
@@ -50,15 +50,36 @@ export async function unansweredSessionQuestions(options: Options): Promise<Sess
   const authorIdsForProfiles = Array.from(new Set(unanswered.map((question) => question.author_id)));
   const { data: authorsData } = await supabaseAdmin
     .from('profiles')
-    .select('id, username')
+    .select('id, username, is_public')
     .in('id', authorIdsForProfiles);
   const authorMap = new Map(
-    ((authorsData ?? []) as { id: string; username: string }[]).map((author) => [author.id, author.username]),
+    ((authorsData ?? []) as { id: string; username: string; is_public: boolean }[])
+      .map((author) => [author.id, author]),
   );
 
-  return unanswered.map((question) => ({
+  let followedAuthors = new Set<string>();
+
+  if (publicOnly) {
+    const { data: followRows } = await (supabaseAdmin.from('follows') as any)
+      .select('followee_id')
+      .eq('follower_id', userId);
+    followedAuthors = new Set(((followRows ?? []) as { followee_id: string }[]).map((row) => row.followee_id));
+  }
+
+  // Explore is a discovery surface, so a private profile only shows up there for viewers who
+  // already follow it. Followers see those questions like any other author's questions, and the
+  // 24-hour feed is unaffected either way.
+  const visible = publicOnly
+    ? unanswered.filter((question) => {
+        const author = authorMap.get(question.author_id);
+        if (!author || author.is_public !== false) return true;
+        return followedAuthors.has(question.author_id);
+      })
+    : unanswered;
+
+  return visible.map((question) => ({
     ...question,
-    author_username: authorMap.get(question.author_id) ?? 'unknown',
+    author_username: authorMap.get(question.author_id)?.username ?? 'unknown',
   }));
 }
 

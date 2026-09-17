@@ -67,6 +67,12 @@ export default async function QuestionPage({ params }: Props) {
   const responders = respondersData as { id: string; username: string; display_name: string | null }[] | null;
   const responderMap = new Map((responders ?? []).map((profile) => [profile.id, profile]));
 
+  // What this author marked as correct. Only rendered inside the author-only summary below.
+  const correctChoice = question.choices[question.correct_answer_index];
+  const correctAnswerText = question.question_type === 'free_text'
+    ? (question.correct_answer ?? 'Not set')
+    : (correctChoice ? `${String.fromCharCode(65 + question.correct_answer_index)}. ${correctChoice}` : 'Not set');
+
   return (
     <div className="mx-auto max-w-4xl space-y-6 pt-6">
       <section className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-[#151519] p-6 shadow-2xl shadow-violet-950/10 md:p-10">
@@ -89,6 +95,12 @@ export default async function QuestionPage({ params }: Props) {
       {currentUserId === question.author_id && (
       <section className="card p-5 md:p-6">
         <div className="flex items-center justify-between"><h2 className="text-lg font-bold text-zinc-100">Answer summary</h2><span className="text-xs uppercase tracking-[0.1em] text-zinc-500">Your question</span></div>
+        <p className="mt-3 text-sm text-zinc-400">
+          Your correct answer: <span className="font-semibold text-zinc-100">{correctAnswerText}</span>
+        </p>
+        {question.question_type === 'free_text' ? (
+          <p className="mt-1 text-xs text-zinc-500">Any aliases you accepted are separated by commas.</p>
+        ) : null}
         {!answerRows || answerRows.length === 0 ? (
           <p className="mt-4 text-slate-700">No one has answered this question yet.</p>
         ) : (

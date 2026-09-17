@@ -62,3 +62,28 @@ export function isAnswerCorrect(submittedAnswer: string, expectedAnswer: string)
     return expectedWords.length > 1 && sharedWords / expectedWords.length >= 0.75;
   }));
 }
+
+export type SplitAcceptedAnswer = {
+  primary: string;
+  aliases: string[];
+};
+
+/**
+ * Free-text answers can be stored as "Paris, City of Light | Parisian", where the extra entries
+ * are accepted aliases. Split them so the UI can name the main answer without dumping the raw
+ * comma list on whoever got it wrong.
+ */
+export function splitAcceptedAnswers(storedAnswer: string): SplitAcceptedAnswer {
+  const parts = storedAnswer.split(/[|,;]/).map((part) => part.trim()).filter(Boolean);
+  return { primary: parts[0] ?? storedAnswer.trim(), aliases: parts.slice(1) };
+}
+
+/**
+ * A friendlier explanation of a free-text answer: the main answer first, then the extra forms
+ * that would also have been accepted, then a reminder that near misses pass too.
+ */
+export function describeAcceptedAnswer(storedAnswer: string) {
+  const { primary, aliases } = splitAcceptedAnswers(storedAnswer);
+  const aliasesSentence = aliases.length > 0 ? ` We would also have accepted ${aliases.join(', ')}.` : '';
+  return `The correct answer is ${primary}.${aliasesSentence} Minor deviations like punctuation, capitalisation or a small typo are accepted too.`;
+}

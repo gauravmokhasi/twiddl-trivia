@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import QuestionAnswerForm, { type AnswerOutcome } from '@/components/QuestionAnswerForm';
+import { describeAcceptedAnswer } from '@/lib/answer-checker';
 import { formatRelativeDate } from '@/lib/utils';
 import type { SessionQuestion } from '@/lib/session-questions';
 
@@ -132,7 +133,11 @@ export default function TriviaSession({ questions, headerLabel = "Today's twiddl
             <p className="mt-2 text-sm text-zinc-300">Your answer: <span className="font-semibold text-zinc-100">{pickedText}</span></p>
           ) : null}
           {!outcome.isCorrect && outcome.correctText ? (
-            <p className="mt-2 text-sm text-zinc-300">The correct answer was <span className="font-semibold text-zinc-100">{outcome.correctText}</span>.</p>
+            currentQuestion.question_type === 'free_text' ? (
+              <p className="mt-2 text-sm leading-6 text-zinc-300">{describeAcceptedAnswer(outcome.correctText)}</p>
+            ) : (
+              <p className="mt-2 text-sm text-zinc-300">The correct answer was <span className="font-semibold text-zinc-100">{outcome.correctText}</span>.</p>
+            )
           ) : null}
           <button type="button" className="button button-primary mt-5" onClick={() => advance(false)}>
             Continue

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Question } from '@/lib/database.types';
+import { describeAcceptedAnswer } from '@/lib/answer-checker';
 
 export type AnswerOutcome = {
   isCorrect: boolean;
@@ -10,6 +11,18 @@ export type AnswerOutcome = {
   answerText: string | null;
   correctText: string | null;
 };
+
+/**
+ * Free-text answers can list accepted aliases after commas, so explain them instead of showing
+ * the raw list to someone who got it wrong. Multiple choice keeps the simpler wording.
+ */
+function explainCorrectAnswer(question: Question, correctText: string | null) {
+  if (!correctText) return 'The correct answer is not recorded.';
+
+  return question.question_type === 'free_text'
+    ? describeAcceptedAnswer(correctText)
+    : `The correct answer is: ${correctText}.`;
+}
 
 type Props = {
   question: Question;
@@ -49,7 +62,7 @@ export default function QuestionAnswerForm({ question, authorId, onResult, skipE
       setStatusMessage(
         data.isCorrect
           ? `You already answered this question. Your answer was correct${question.question_type === 'free_text' ? `: ${data.answerText ?? ''}` : `: ${question.choices[data.selectedChoiceIndex]}`}.`
-          : `You already answered this question. Your answer was incorrect. The correct answer is: ${correctText}.`
+          : `You already answered this question. Your answer was incorrect. ${explainCorrectAnswer(question, correctText)}`
       );
     };
 
@@ -113,7 +126,7 @@ export default function QuestionAnswerForm({ question, authorId, onResult, skipE
         : `Nice! Your answer is correct. You chose: ${question.choices[data.selectedChoiceIndex]}.`);
     } else {
       const correctText = question.correct_answer ?? question.choices[data.correctAnswerIndex];
-      setStatusMessage(`That answer is not correct. The correct answer is: ${correctText}.`);
+      setStatusMessage(`That answer is not correct. ${explainCorrectAnswer(question, correctText)}`);
     }
   };
 

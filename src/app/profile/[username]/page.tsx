@@ -24,7 +24,7 @@ type Props = {
 export default async function ProfilePage({ params, searchParams }: Props) {
   const supabase = await createServerSupabase();
   const { username } = await params;
-  const { view } = await searchParams;
+  const { play, view } = await searchParams;
 
   // get session to determine the current user
   const { data: { session } } = await supabase.auth.getSession();
@@ -42,16 +42,29 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     notFound();
   }
 
-  // If profile is private and requester is not owner, show 404
-  if (!user.is_public && currentUserId !== user.id) {
-    notFound();
-  }
+  // A private profile is unlisted rather than unreachable: it never appears in the Universe
+  // (that listing filters on is_public) but anyone who has the username can still open it and
+  // follow it, which is the point of sharing the handle.
 
   // Answering this user's questions is the default visit for signed-in visitors. The profile
-  // itself (counts, followers, archive) opens when the viewer asks for it with ?view=profile,
-  // or when there is nobody to answer as (signed out) or the profile belongs to the viewer.
-  // (?play=1 still works as an explicit "start answering" link.)
-  if (view !== 'profile' && currentUserId && currentUserId !== user.id) {
+  // page itself (counts, followers, archive, follow button) opens when the viewer asks for it
+  // with ?view=profile, when there is nobody to answer as (signed out), or when the profile
+  // belongs to the viewer. A private profile keeps that profile-first default for viewers who
+  // do not follow it yet, which is where the follow button lives; viewers who already follow it
+  // are treated like any other profile. ?play=1 always starts answering.
+  let startAnswering = user.is_public || play === '1';
+
+  if (!startAnswering && view !== 'profile' && currentUserId && currentUserId !== user.id) {
+    const { data: followRow } = await supabaseAdmin
+      .from('follows')
+      .select('follower_id')
+      .eq('follower_id', currentUserId)
+      .eq('followee_id', user.id)
+      .maybeSingle();
+    startAnswering = Boolean(followRow);
+  }
+
+  if (startAnswering && view !== 'profile' && currentUserId && currentUserId !== user.id) {
     const backToProfile = (
       <section className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 pt-6">
         <Link href={`/profile/${user.username}?view=profile`} className="button button-ghost text-sm">← Back to @{user.username}&apos;s profile</Link>

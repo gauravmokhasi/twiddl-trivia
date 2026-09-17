@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { createServerSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import ProfileButton from '@/components/profile-button';
+import UsernameJump from '@/components/username-jump';
 import type { Database } from '@/lib/database.types';
 
 export default async function UniversePage() {
@@ -21,6 +22,8 @@ export default async function UniversePage() {
         <h2 className="mt-2 text-3xl font-bold tracking-tight text-zinc-100">Universe</h2>
         <p className="mt-2 max-w-xl text-zinc-400">Browse public profiles and discover users to follow.</p>
       </section>
+
+      <UsernameJump />
 
       <section className="grid gap-4 md:grid-cols-2">
         {publicUsers?.map((user) => (
