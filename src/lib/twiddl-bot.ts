@@ -117,19 +117,138 @@ export async function seedTodaysBotQuestion() {
   if (existingQuestionError) throw new Error(existingQuestionError.message);
   if (existingQuestion) return existingQuestion.id;
 
-  // The bot's question pool. The newer questions come first and the original three sit at the
-  // end, so those older ones are only reconsidered once everything newer has been used.
-  const questionPool = [
-    { text: 'What is the capital of Japan?', choices: ['Kyoto', 'Tokyo', 'Osaka'], correctAnswerIndex: 1 },
-    { text: 'Which gas do plants absorb from the atmosphere?', choices: ['Oxygen', 'Carbon dioxide', 'Nitrogen'], correctAnswerIndex: 1 },
-    { text: 'Who painted the Mona Lisa?', choices: ['Vincent van Gogh', 'Leonardo da Vinci', 'Claude Monet'], correctAnswerIndex: 1 },
-    { text: 'What is the tallest mountain on Earth?', choices: ['K2', 'Mount Everest', 'Kilimanjaro'], correctAnswerIndex: 1 },
-    { text: 'Which country hosted the 2016 Summer Olympics?', choices: ['Brazil', 'China', 'United Kingdom'], correctAnswerIndex: 0 },
-    { text: 'How many continents are there on Earth?', choices: ['Five', 'Seven', 'Nine'], correctAnswerIndex: 1 },
-    { text: 'Which instrument has 88 keys?', choices: ['Guitar', 'Piano', 'Trumpet'], correctAnswerIndex: 1 },
-    { text: 'Which planet is known as the Red Planet?', choices: ['Mars', 'Venus', 'Jupiter'], correctAnswerIndex: 0 },
-    { text: 'What is the largest ocean on Earth?', choices: ['Atlantic Ocean', 'Pacific Ocean', 'Indian Ocean'], correctAnswerIndex: 1 },
-    { text: 'How many sides does a hexagon have?', choices: ['Five', 'Six', 'Eight'], correctAnswerIndex: 1 },
+  // The bot's question pool, written to follow the "How to Write a Great Twiddl Question" guide:
+  // clue-led rather than fact-recall. Every fact here has been checked against the subject's own
+  // reference article. Clue-style questions are free text (answered via the fuzzy grader with the
+  // aliases after the commas); a few stay multiple choice for variety.
+  type PoolQuestion = {
+    text: string;
+    questionType: 'multiple_choice' | 'free_text';
+    choices: string[];
+    correctAnswerIndex: number;
+    correctAnswer: string | null;
+  };
+
+  const questionPool: PoolQuestion[] = [
+    {
+      text: 'This composer wrote The Four Seasons, and he earned the nickname the Red Priest because of his hair colour. Who is he?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Antonio Vivaldi, Vivaldi, il Prete Rosso',
+    },
+    {
+      text: 'This painter sold very few paintings in his lifetime and cut off part of his own ear. He painted The Starry Night while staying at an asylum. Who is he?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Vincent van Gogh, Van Gogh, Vincent',
+    },
+    {
+      text: 'This physicist became a byword for genius. He won the Nobel Prize for explaining the photoelectric effect rather than for the theory he is best known for, and his most famous equation links energy with mass. Who is he?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Albert Einstein, Einstein',
+    },
+    {
+      text: 'This composer wrote his first symphony at eight and was touring Europe as a child prodigy before he was ten. Who is he?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Wolfgang Amadeus Mozart, Mozart',
+    },
+    {
+      text: 'Her research on radioactivity won her Nobel Prizes in two different sciences, and she is still the only person to win a Nobel in both physics and chemistry. Who is she?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Marie Curie, Curie, Maria Sklodowska',
+    },
+    {
+      text: 'This composer was already deaf when his Ninth Symphony premiered, and that symphony ends with a setting of Schiller\'s Ode to Joy. Who is he?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Ludwig van Beethoven, Beethoven',
+    },
+    {
+      text: 'This metal has been used in thermometers for centuries, has the chemical symbol Hg, and is the only metal that is a liquid at room temperature. What is it?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Mercury, quicksilver',
+    },
+    {
+      text: 'This planet is so light that it would float in water, and one of its moons has lakes of liquid methane. Which planet is it?',
+      questionType: 'multiple_choice',
+      choices: ['Jupiter', 'Saturn', 'Neptune'],
+      correctAnswerIndex: 1,
+      correctAnswer: null,
+    },
+    {
+      text: 'He is said to have shouted Eureka when he noticed the water rise in his bath, and a principle about buoyancy carries his name. Who was he?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Archimedes',
+    },
+    {
+      text: 'This bird is the fastest animal on Earth, reaching over 300 km/h in a dive. Which bird is it?',
+      questionType: 'multiple_choice',
+      choices: ['Golden eagle', 'Peregrine falcon', 'Barn owl'],
+      correctAnswerIndex: 1,
+      correctAnswer: null,
+    },
+    {
+      text: 'One joule per second is the definition of this unit of power, which is named after a Scottish engineer. Which unit is it?',
+      questionType: 'multiple_choice',
+      choices: ['Watt', 'Volt', 'Ampere'],
+      correctAnswerIndex: 0,
+      correctAnswer: null,
+    },
+    {
+      text: 'This naturalist spent five years aboard a survey ship and then waited more than twenty years to publish On the Origin of Species. Who is he?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Charles Darwin, Darwin',
+    },
+    {
+      text: 'A thought experiment involving this physicist\'s cat leaves it both alive and dead. Who is the physicist?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Erwin Schrodinger, Erwin Schrödinger, Schrodinger, Schrödinger',
+    },
+    {
+      text: 'This is the only mammal capable of true sustained flight rather than just gliding. What is it?',
+      questionType: 'free_text',
+      choices: [],
+      correctAnswerIndex: -1,
+      correctAnswer: 'Bat, Bats, a bat, the bat',
+    },
+    {
+      text: 'Which planet is known as the Red Planet?',
+      questionType: 'multiple_choice',
+      choices: ['Mars', 'Venus', 'Jupiter'],
+      correctAnswerIndex: 0,
+      correctAnswer: null,
+    },
+    {
+      text: 'What is the largest ocean on Earth?',
+      questionType: 'multiple_choice',
+      choices: ['Atlantic Ocean', 'Pacific Ocean', 'Indian Ocean'],
+      correctAnswerIndex: 1,
+      correctAnswer: null,
+    },
+    {
+      text: 'How many sides does a hexagon have?',
+      questionType: 'multiple_choice',
+      choices: ['Five', 'Six', 'Eight'],
+      correctAnswerIndex: 1,
+      correctAnswer: null,
+    },
   ];
 
   const { data: askedQuestionsData, error: askedQuestionsError } = await supabaseAdmin
@@ -152,13 +271,15 @@ export async function seedTodaysBotQuestion() {
     ? neverAsked[0]
     : questionPool.slice().sort((left, right) => earliestAsk(left.text) - earliestAsk(right.text))[0];
 
+  const isMultipleChoice = question.questionType === 'multiple_choice';
+
   const { data: insertedQuestion, error: insertError } = await (supabaseAdmin.from('questions') as any).insert({
     author_id: TWIDDL_BOT_ID,
     text: question.text,
-    choices: question.choices,
-    correct_answer_index: question.correctAnswerIndex,
-    question_type: 'multiple_choice',
-    correct_answer: null,
+    choices: isMultipleChoice ? question.choices : [],
+    correct_answer_index: isMultipleChoice ? question.correctAnswerIndex : -1,
+    question_type: question.questionType,
+    correct_answer: isMultipleChoice ? null : question.correctAnswer,
     is_public: true,
   }).select('id').single();
 

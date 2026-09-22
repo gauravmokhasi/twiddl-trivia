@@ -99,6 +99,18 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
         <h2 className="mt-2 text-3xl font-bold tracking-tight text-zinc-100">Ask your question.</h2>
         <p className="mt-2 text-zinc-400">One question a day. Make it a good one.</p>
 
+        <div className="mt-5 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 md:p-5">
+          <p className="eyebrow">What makes a good question</p>
+          <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-zinc-400 marker:text-violet-400/70">
+            <li><span className="font-semibold text-zinc-200">Give people a way in.</span> Offer clues, not just a fact, so everyone has a fighting chance.</li>
+            <li><span className="font-semibold text-zinc-200">Make every clue count.</span> Each clue should bring them closer to the answer.</li>
+            <li><span className="font-semibold text-zinc-200">Make solving more fun than knowing.</span> The goal isn&apos;t to stump everyone, it&apos;s the click.</li>
+          </ul>
+          <Link href="/how-to-write-a-question" className="mt-3 inline-block text-sm font-semibold text-violet-300 transition hover:text-violet-200">
+            Read the full guide →
+          </Link>
+        </div>
+
         {!session ? (
           <div className="mt-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">
             Please <Link href="/login" className="text-violet-300 underline">sign in</Link> to ask a question.
