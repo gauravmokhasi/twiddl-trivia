@@ -15,7 +15,7 @@ Twiddl Trivia is a social quiz app built with Next.js, TypeScript, Tailwind CSS,
 - One answer per user per question
 - Profile history, follower/following lists, all-time correct-answer counts, and current Q&A streaks
 - Private answer summaries visible only to the question author
-- `twiddlBot`, an automated public trivia profile with daily questions and best-effort answers
+- `twiddlBot`, an automated public trivia profile that writes a daily question with Groq and answers questions best-effort (falling back to a static question list when Groq is unavailable)
 
 ## Requirements
 
@@ -52,7 +52,7 @@ npm run lint
 
 ## Environment variables
 
-Never commit `.env.local` or any Supabase service-role key. The service-role key is server-only and must not be exposed through `NEXT_PUBLIC_*` variables.
+Never commit `.env.local` or any Supabase service-role key. The service-role key is server-only and must not be exposed through `NEXT_PUBLIC_*` variables. `GROQ_API_KEY` is server-only in the same way: it is read inside `src/lib/groq-client.ts`, which is only ever imported by server code, and the daily question falls back to a static list when the key is absent.
 
 ## Deploying to Vercel
 
@@ -63,6 +63,7 @@ Never commit `.env.local` or any Supabase service-role key. The service-role key
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `CRON_SECRET`
+   - `GROQ_API_KEY` (server-only; twiddlBot uses it to generate its daily question and falls back to a static list if it is missing or Groq fails)
 4. Deploy the project. Vercel will use `vercel.json` to call `/api/cron/twiddl-bot` daily.
 5. In Supabase Auth URL Configuration, set the production Site URL to the Vercel URL and add that URL to the Redirect URLs. Keep the localhost URL too for local development.
 

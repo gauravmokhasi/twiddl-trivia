@@ -2,6 +2,9 @@
     "chat.tools.terminal.autoApprove": {
         "&": true,
         "ForEach-Object": true,
-        "Test-Path": true
+        "Test-Path": true,
+        "npx tsx": true,
+        "npm install": true,
+        "npx tsc": true
     }
 }

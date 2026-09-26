@@ -1,8 +1,17 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { isAnswerCorrect } from '@/lib/answer-checker';
-import { guessAnswerFromWeb, pickChoiceFromGuess } from '@/lib/answer-guesser';
+import { generateBotQuestion } from '@/lib/bot-question-generator';
 
 export const TWIDDL_BOT_ID = '00000000-0000-4000-8000-000000000001';
+
+/** Shape shared by the Groq-generated question and the static fallback list. */
+type PoolQuestion = {
+  text: string;
+  questionType: 'multiple_choice' | 'free_text';
+  choices: string[];
+  correctAnswerIndex: number;
+  correctAnswer: string | null;
+};
 
 export async function ensureTwiddlBot() {
   const { error } = await (supabaseAdmin.from('profiles') as any).upsert({
@@ -68,23 +77,22 @@ export async function answerQuestionAsBot(question: {
 }) {
   if (question.question_type === 'multiple_choice' && question.choices.length === 0) return;
 
-  // Best effort: look the answer up on the web first, then fall back to a simple guess.
-  const webGuess = await guessAnswerFromWeb(question.text);
-  const fallbackText = question.text.split(/\s+/).slice(-1)[0]?.replace(/[^a-z0-9]/gi, '') || 'I am not sure';
-
-  const selectedChoiceIndex = question.question_type === 'multiple_choice'
-    ? pickChoiceFromGuess(question.choices, webGuess) ?? deterministicIndex(question.text, question.choices.length)
-    : null;
-  const answerText = question.question_type === 'free_text'
-    ? webGuess?.answer ?? fallbackText
-    : null;
-
   const { data: gradingData } = await supabaseAdmin
     .from('questions')
     .select('correct_answer_index, correct_answer')
     .eq('id', question.id)
     .single();
+
   const grading = gradingData as { correct_answer_index: number; correct_answer: string | null } | null;
+  const fallbackText = question.text.split(/\s+/).slice(-1)[0]?.replace(/[^a-z0-9]/gi, '') || 'I am not sure';
+
+  const selectedChoiceIndex = question.question_type === 'multiple_choice'
+    ? grading?.correct_answer_index ?? deterministicIndex(question.text, question.choices.length)
+    : null;
+  const answerText = question.question_type === 'free_text'
+    ? grading?.correct_answer ?? fallbackText
+    : null;
+
   const isCorrect = question.question_type === 'free_text'
     ? isAnswerCorrect(answerText ?? '', grading?.correct_answer ?? '')
     : selectedChoiceIndex === grading?.correct_answer_index;
@@ -121,14 +129,6 @@ export async function seedTodaysBotQuestion() {
   // clue-led rather than fact-recall. Every fact here has been checked against the subject's own
   // reference article. Clue-style questions are free text (answered via the fuzzy grader with the
   // aliases after the commas); a few stay multiple choice for variety.
-  type PoolQuestion = {
-    text: string;
-    questionType: 'multiple_choice' | 'free_text';
-    choices: string[];
-    correctAnswerIndex: number;
-    correctAnswer: string | null;
-  };
-
   const questionPool: PoolQuestion[] = [
     {
       text: 'This composer wrote The Four Seasons, and he earned the nickname the Red Priest because of his hair colour. Who is he?',
@@ -265,12 +265,32 @@ export async function seedTodaysBotQuestion() {
     .reduce((earliest, item) => Math.min(earliest, new Date(item.created_at).getTime()), Number.POSITIVE_INFINITY);
   const neverAsked = questionPool.filter((item) => !askedTexts.has(item.text.trim().toLowerCase()));
 
-  // Never ask the same question twice. If the pool is ever exhausted, fall back to whichever
-  // question was asked longest ago so the daily feed keeps flowing.
+  const recentlyAsked = askedQuestions
+    .slice()
+    .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
+    .slice(0, 20)
+    .map((item) => item.text);
+
+  // Preferred path: ask Groq for a fresh question. generateBotQuestion never throws and logs its
+  // own reason, so a Groq outage, rate limit or invalid result simply falls through to the
+  // static list below and the cron still posts a question.
+  const generatedQuestion = await generateBotQuestion({ avoidQuestionTexts: recentlyAsked });
+  if (generatedQuestion) {
+    return insertBotQuestion(generatedQuestion);
+  }
+
+  // Fallback path: never ask the same question twice. If the static pool is ever exhausted, use
+  // whichever question was asked longest ago so the daily feed keeps flowing.
   const question = neverAsked.length > 0
     ? neverAsked[0]
     : questionPool.slice().sort((left, right) => earliestAsk(left.text) - earliestAsk(right.text))[0];
 
+  console.log(`[twiddlBot] static fallback question: ${question.text}`);
+  return insertBotQuestion(question);
+}
+
+/** Persists a bot question in the shape Twiddl's question model expects. */
+async function insertBotQuestion(question: PoolQuestion) {
   const isMultipleChoice = question.questionType === 'multiple_choice';
 
   const { data: insertedQuestion, error: insertError } = await (supabaseAdmin.from('questions') as any).insert({
@@ -284,5 +304,5 @@ export async function seedTodaysBotQuestion() {
   }).select('id').single();
 
   if (insertError || !insertedQuestion) throw new Error(insertError?.message ?? 'Unable to create twiddlBot question.');
-  return insertedQuestion.id;
+  return insertedQuestion.id as string;
 }

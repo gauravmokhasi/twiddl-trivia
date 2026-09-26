@@ -6,10 +6,10 @@ import AuthCard from '@/components/AuthCard';
 import { useAuth } from '@/components/AuthProvider';
 
 const sampleChoices: [string, string][] = [
-  ['A', 'Earth'],
-  ['B', 'Jupiter'],
-  ['C', 'Mars'],
-  ['D', 'Saturn'],
+  ['A', 'Jupiter'],
+  ['B', 'Saturn'],
+  ['C', 'Uranus'],
+  ['D', 'Neptune'],
 ];
 
 export default function LoggedOutLanding() {
@@ -65,7 +65,7 @@ export default function LoggedOutLanding() {
             <span className="eyebrow">Who knew?</span>
             <span className="badge badge-neutral">Today</span>
           </div>
-          <p className="mt-6 text-2xl font-bold leading-tight tracking-tight text-zinc-50">Which planet has the shortest day?</p>
+          <p className="mt-6 text-2xl font-bold leading-tight tracking-tight text-zinc-50">This planet is so light it would float in water, and one of its moons has lakes of liquid methane.</p>
           <ul className="mt-6 space-y-2">
             {sampleChoices.map(([letter, choice]) => (
               <li key={letter} className="flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.025] px-4 py-3 text-sm text-zinc-300">
@@ -79,7 +79,7 @@ export default function LoggedOutLanding() {
 
         <div className="animate-float-slow mt-5 hidden max-w-xs rounded-2xl border border-white/[0.08] bg-[#151519] p-4 shadow-xl sm:block">
           <p className="text-xs font-semibold text-violet-300">@maya asked</p>
-          <p className="mt-1.5 text-sm text-zinc-300">What is the largest ocean on Earth?</p>
+          <p className="mt-1.5 text-sm text-zinc-300">This physicist&apos;s cat is famously both alive and dead in a thought experiment.</p>
           <p className="mt-3 text-xs font-semibold text-emerald-300">✓ Correct</p>
         </div>
       </div>
