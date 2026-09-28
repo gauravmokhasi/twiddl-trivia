@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { isAnswerCorrect } from '@/lib/answer-checker';
 import { generateBotQuestion } from '@/lib/bot-question-generator';
+import { guessAnswerWithGroq, matchGuessToChoices } from '@/lib/groq-answer';
 
 export const TWIDDL_BOT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -84,14 +85,20 @@ export async function answerQuestionAsBot(question: {
     .single();
 
   const grading = gradingData as { correct_answer_index: number; correct_answer: string | null } | null;
+
+  // Genuine attempt: the answer key is never sent, and if Groq is unavailable we fall back to a
+  // simple guess, so the bot can get questions wrong the way a player can.
+  const guess = await guessAnswerWithGroq(question.text);
   const fallbackText = question.text.split(/\s+/).slice(-1)[0]?.replace(/[^a-z0-9]/gi, '') || 'I am not sure';
 
   const selectedChoiceIndex = question.question_type === 'multiple_choice'
-    ? grading?.correct_answer_index ?? deterministicIndex(question.text, question.choices.length)
+    ? (matchGuessToChoices(question.choices, guess) ?? deterministicIndex(question.text, question.choices.length))
     : null;
   const answerText = question.question_type === 'free_text'
-    ? grading?.correct_answer ?? fallbackText
+    ? (guess ?? fallbackText)
     : null;
+
+  console.log(`[twiddlBot] answering ${question.id} with ${guess ? `"${guess}"` : 'a last-word guess'}`);
 
   const isCorrect = question.question_type === 'free_text'
     ? isAnswerCorrect(answerText ?? '', grading?.correct_answer ?? '')

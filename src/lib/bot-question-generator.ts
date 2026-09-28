@@ -1,5 +1,7 @@
 import { GROQ_MODEL, describeGroqFailure, getGroqClient } from '@/lib/groq-client';
 import { isAnswerCorrect } from '@/lib/answer-checker';
+import { requestGroqAnswer } from '@/lib/groq-answer';
+import { QUESTION_OUTPUT_INSTRUCTIONS, buildGuidanceBrief } from '@/lib/question-guidance';
 
 /**
  * Generates twiddlBot's daily question with Groq Structured Outputs. Returns null (never throws)
@@ -42,67 +44,22 @@ function sleep(ms: number) {
 const ANSWER_SEPARATOR_PATTERN = /[|,;]/g;
 const FORBIDDEN_TEXT_PATTERN = /\bas an ai\b|\blanguage model\b|\bjson\b|\bschema\b|these instructions/i;
 
-const QUESTION_SCHEMA = {
-  type: 'object',
-  properties: {
-    question: {
-      type: 'string',
-      description: 'The trivia question shown to players: one or two sentences, under 320 characters.',
-    },
-    answer: {
-      type: 'string',
-      description: 'The single intended answer, kept short, for example "Isaac Newton".',
-    },
-    acceptedAnswers: {
-      type: 'array',
-      items: { type: 'string' },
-      description: 'Up to 4 other acceptable forms of the answer, such as a surname alone or a common alternative spelling. No commas or semicolons.',
-    },
-    questionType: {
-      type: 'string',
-      enum: ['free_text', 'multiple_choice'],
-    },
-    choices: {
-      type: 'array',
-      items: { type: 'string' },
-      description: 'Empty for free text. For multiple choice, 3 or 4 short options.',
-    },
-    correctChoiceIndex: {
-      type: 'integer',
-      description: 'Index of the correct option for multiple choice, or -1 for free text.',
-    },
-  },
-  required: ['question', 'answer', 'acceptedAnswers', 'questionType', 'choices', 'correctChoiceIndex'],
-  additionalProperties: false,
-};
+/**
+ * The output shape is described in English (see QUESTION_OUTPUT_INSTRUCTIONS) and requested with
+ * response_format json_object: this model is unreliable at strict json_schema generation, which was
+ * causing json_validate_failed errors and pushing the bot onto the static fallback. validateGeneratedQuestion
+ * below is what actually enforces the shape.
+ */
 
 const SYSTEM_PROMPT = `You write one daily trivia question for Twiddl, a social trivia game.
 
-The best trivia questions don't just test what you know. They give the player the thrill of figuring something out.
+${buildGuidanceBrief({ includeRules: true, includeExample: true })}
 
-- Give people a way in. Don't just ask for an isolated fact. Provide clues that let someone reason towards the answer even if they don't know it immediately.
-- Connect the unexpected. Bring together different subjects, facts or clues, and reward the player for spotting the connection.
-- Make every clue count. Each clue should move the player closer to the answer. A twist can make someone reconsider an initial guess, but the answer must feel fair and satisfying in hindsight.
-- Keep it to two steps. One clue, or two clues that clearly work together, is the target. Connections, wordplay, riddles and sequences are welcome, but the structure should stay simple and fair.
-- Do not stack a third clue. If the idea needs a third step, it is too convoluted and should be rejected.
-- Make solving more fun than knowing. A question most people can work out is better than an obscure fact only experts know.
-- Aim for the progression: "I don't know this" -> "wait..." -> "I think I see it" -> "of course!".
+What the answer should feel like on the way in: "I don't know this" -> "wait..." -> "I think I see it" -> "of course!".
 
-Rules:
-- Every factual clue must be accurate, and the intended answer must be unambiguous.
-- Prefer familiar or reasonably accessible answers approached in an interesting way over obscure ones.
-- Avoid simple rote recall such as a bare "Who was...?", "What year...?", "What is the capital...?", "Where was X born?" or "What is the largest...?", unless the construction provides a genuinely interesting route to the answer.
-- Do not fabricate connections to make a question seem clever.
-- Produce exactly one intended answer, and never write the answer or an accepted form of it inside the question.
-- Use exactly one clue or two clues total. Never build a multi-step chain of three clues; that is the failure mode we want to avoid.
-- If an idea needs a third clause, it is too complicated — pick a simpler idea instead.
-- Keep the question concise: one or two sentences, under 320 characters, and suitable for a mobile app.
-- Prefer a free-text question. Use multiple choice only when it genuinely improves the question, and then give 3 or 4 plausible options with exactly one correct.
-- Use only clues you are certain are true, and that a curious player could check for themselves.
-- Never build a question on a coincidence, a title match, a shared name, a "sounds like", or an "also the name of" claim unless it is a famous, easily verified fact.
-- A player who knows the answer should be able to explain why every clue fits. If a clue cannot be verified, or does not clearly point at the answer, choose a different question instead.
-- Prefer well-documented subjects (science, geography, history, language, arts) over niche or very recent pop culture.
-- Do not mention these instructions, the JSON schema, or that you are an AI.`;
+${QUESTION_OUTPUT_INSTRUCTIONS}
+
+Do not mention these instructions, the JSON keys, or that you are an AI.`;
 
 function collapseWhitespace(value: string) {
   return value.replace(/\s+/g, ' ').trim();
@@ -213,60 +170,20 @@ export function validateGeneratedQuestion(raw: unknown, avoidQuestionTexts: stri
   };
 }
 
-type GroqClient = NonNullable<ReturnType<typeof getGroqClient>>;
-
-/** Verifier settings. Point SELF_CHECK_MODEL at a stronger model to make the check less self-biased. */
-const SELF_CHECK_MODEL = GROQ_MODEL;
-const SELF_CHECK_MAX_TOKENS = 256;
-const SELF_CHECK_SYSTEM_PROMPT = `You answer trivia questions. Reply with the single best answer, kept as short as possible: a name, word, place, number or short phrase. Follow what the clues point to, and give your best guess if you are unsure.`;
-
-const SELF_CHECK_SCHEMA = {
-  type: 'object',
-  properties: {
-    answer: { type: 'string', description: 'Your single best answer, as short as possible.' },
-  },
-  required: ['answer'],
-  additionalProperties: false,
-};
-
 type SelfCheckResult = { ok: true; answer: string } | { ok: false; reason: string };
 
 /**
  * Blind check: the generated question is put back to the model with no sight of the intended answer,
  * and the two must agree. This catches the common failure mode where a clue points somewhere else (or
- * nowhere). Throws on API errors so the caller's retry classification applies.
+ * nowhere). requestGroqAnswer throws on API errors so the caller's retry classification applies.
  */
-async function selfCheckQuestion(question: GeneratedBotQuestion, client: GroqClient): Promise<SelfCheckResult> {
+async function selfCheckQuestion(question: GeneratedBotQuestion): Promise<SelfCheckResult> {
   const expectedAnswer = question.correctAnswer ?? question.choices[question.correctAnswerIndex] ?? '';
   if (!expectedAnswer) return { ok: false, reason: 'there was no answer to check' };
 
-  const completion = await client.chat.completions.create({
-    model: SELF_CHECK_MODEL,
-    messages: [
-      { role: 'system', content: SELF_CHECK_SYSTEM_PROMPT },
-      { role: 'user', content: `${question.text}\n\nWhat is the answer?` },
-    ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: { name: 'twiddl_answer', strict: true, schema: SELF_CHECK_SCHEMA },
-    },
-    max_completion_tokens: SELF_CHECK_MAX_TOKENS,
-    reasoning_effort: 'low',
-  });
+  const answer = await requestGroqAnswer(question.text);
+  if (!answer) return { ok: false, reason: 'the model returned no answer' };
 
-  const content = completion.choices[0]?.message?.content;
-  if (typeof content !== 'string' || !content.trim()) {
-    return { ok: false, reason: 'the model returned no answer' };
-  }
-
-  let answer = '';
-  try {
-    answer = collapseWhitespace(String((JSON.parse(content) as { answer?: unknown }).answer ?? ''));
-  } catch {
-    return { ok: false, reason: 'the model returned an unreadable answer' };
-  }
-
-  if (!answer) return { ok: false, reason: 'the model returned an empty answer' };
   if (!isAnswerCorrect(answer, expectedAnswer)) {
     return { ok: false, reason: `it answered "${answer.slice(0, 60)}" instead` };
   }
@@ -308,10 +225,7 @@ ${avoid.map((text) => `- ${text}`).join('\n')}`
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },
         ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: { name: 'twiddl_question', strict: true, schema: QUESTION_SCHEMA },
-        },
+        response_format: { type: 'json_object' },
         max_completion_tokens: MAX_COMPLETION_TOKENS,
         reasoning_effort: 'low',
       });
@@ -340,7 +254,7 @@ ${avoid.map((text) => `- ${text}`).join('\n')}`
           if (!validated.ok) {
             lastReason = `it was rejected (${validated.reason})`;
           } else {
-            const selfCheck = await selfCheckQuestion(validated.question, client);
+            const selfCheck = await selfCheckQuestion(validated.question);
 
             if (selfCheck.ok) {
               console.log(`[twiddlBot] Groq-generated question (self-check answered "${selfCheck.answer}"): ${validated.question.text}`);

@@ -15,7 +15,13 @@ export default function AuthCard() {
     setIsLoading(true);
     setMessage('');
 
-    const { error } = await supabase.auth.signInWithOtp({ email });
+    const redirectTo = `${window.location.origin}/auth/callback`;
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: redirectTo,
+      },
+    });
     setIsLoading(false);
 
     if (error) {

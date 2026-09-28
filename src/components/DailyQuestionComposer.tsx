@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import type { AiAssistReview } from '@/lib/ai-assist';
+import { buildChoicePayload } from '@/lib/question-choices';
+import { GUIDANCE_PRINCIPLES } from '@/lib/question-guidance';
 
 type Props = {
   /** Called after the question is created so the caller can jump straight into the answering flow. */
@@ -106,8 +108,9 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
       return;
     }
 
-    const validChoices = choices.map((choice) => choice.trim()).filter(Boolean);
-    if (questionType === 'multiple_choice' && validChoices.length < 2) {
+    // Blank rows are dropped, so the ticked option has to be remapped to keep pointing at itself.
+    const choicePayload = buildChoicePayload(choices, correctAnswerIndex);
+    if (questionType === 'multiple_choice' && choicePayload.choices.length < 2) {
       setMessage('Please provide at least two answer choices.');
       return;
     }
@@ -125,8 +128,8 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
       body: JSON.stringify({
         text: questionText.trim(),
         questionType,
-        choices: questionType === 'multiple_choice' ? validChoices : [],
-        correctAnswerIndex: questionType === 'multiple_choice' ? correctAnswerIndex : -1,
+        choices: questionType === 'multiple_choice' ? choicePayload.choices : [],
+        correctAnswerIndex: questionType === 'multiple_choice' ? choicePayload.correctAnswerIndex : -1,
         correctAnswer: questionType === 'free_text' ? correctAnswer.trim() : null,
         isPublic: true,
       }),
@@ -170,9 +173,14 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
       return;
     }
 
-    const validChoices = choices.map((choice) => choice.trim()).filter(Boolean);
-    if (questionType === 'multiple_choice' && validChoices.length < 2) {
+    const choicePayload = buildChoicePayload(choices, correctAnswerIndex);
+    if (questionType === 'multiple_choice' && choicePayload.choices.length < 2) {
       setMessage('Please provide at least two answer choices.');
+      return;
+    }
+
+    if (questionType === 'multiple_choice' && choicePayload.correctAnswerIndex < 0) {
+      setMessage('Please fill in the choice you marked as correct.');
       return;
     }
 
@@ -190,8 +198,8 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
             body: JSON.stringify({
               text: text.trim(),
               questionType,
-              choices: questionType === 'multiple_choice' ? validChoices : [],
-              correctAnswerIndex: questionType === 'multiple_choice' ? correctAnswerIndex : -1,
+              choices: questionType === 'multiple_choice' ? choicePayload.choices : [],
+              correctAnswerIndex: questionType === 'multiple_choice' ? choicePayload.correctAnswerIndex : -1,
               correctAnswer: questionType === 'free_text' ? correctAnswer.trim() : null,
             }),
           });
@@ -244,9 +252,11 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
         <div className="mt-5 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 md:p-5">
           <p className="eyebrow">What makes a good question</p>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-zinc-400 marker:text-violet-400/70">
-            <li><span className="font-semibold text-zinc-200">Give people a way in.</span> Offer clues, not just a fact, so everyone has a fighting chance.</li>
-            <li><span className="font-semibold text-zinc-200">Make every clue count.</span> Each clue should bring them closer to the answer.</li>
-            <li><span className="font-semibold text-zinc-200">Make solving more fun than knowing.</span> The goal isn&apos;t to stump everyone, it&apos;s the click.</li>
+            {GUIDANCE_PRINCIPLES.filter((principle) => principle.showInComposer).map((principle) => (
+              <li key={principle.title}>
+                <span className="font-semibold text-zinc-200">{principle.title}</span> {principle.short}
+              </li>
+            ))}
           </ul>
           <Link href="/how-to-write-a-question" className="mt-3 inline-block text-sm font-semibold text-violet-300 transition hover:text-violet-200">
             Read the full guide →
@@ -263,6 +273,11 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
               <div>
                 <p className="text-sm font-medium text-zinc-200">AI Assist</p>
                 <p className="text-xs text-zinc-400">Optional guidance to make the question more fun to solve.</p>
+                {aiAssistEnabled ? (
+                  <p className="mt-1 text-xs text-amber-300/90">
+                    AI Assist can occasionally get things wrong. Please check the question and the correct answer yourself before posting.
+                  </p>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -364,6 +379,9 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                 <p className="font-medium">Want to make this more fun to solve?</p>
                 <p className="mt-2 rounded-xl border border-violet-400/20 bg-zinc-950/60 p-3 text-zinc-100">
                   {aiAssistReview.suggestedQuestion}
+                </p>
+                <p className="mt-2 text-xs text-violet-200/80">
+                  AI suggestions can occasionally be inaccurate. Check that the rewrite still matches your intended answer before posting.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-3">
                   <button type="button" className="button button-primary" onClick={handleUseSuggestion}>

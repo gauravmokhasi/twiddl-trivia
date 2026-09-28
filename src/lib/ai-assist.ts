@@ -1,4 +1,6 @@
+import { splitAcceptedAnswers } from '@/lib/answer-checker';
 import { GROQ_MODEL, describeGroqFailure, getGroqClient } from '@/lib/groq-client';
+import { buildGuidanceBrief } from '@/lib/question-guidance';
 
 export type AiAssistAssessment = 'GOOD' | 'OKAY' | 'NEEDS_REFRAME';
 
@@ -11,22 +13,15 @@ export type AiAssistReview = {
 const MAX_COMPLETION_TOKENS = 320;
 const AI_ASSIST_SYSTEM_PROMPT = `You review Twiddl trivia questions to keep the game fun and fair.
 
-The best trivia questions don't just test what you know. They give the player the thrill of figuring something out.
-
-- Give people a way in. Provide clues or a route to deduction rather than pure recall.
-- Connect ideas where it helps, but keep it grounded in real facts.
-- Make every clue count and keep the answer fair in hindsight.
-- Questions can use logic, wordplay, sequences, images or multi-step reasoning when the format supports it.
-- Prefer accessible questions that can be solved through reasoning over obscure fact dumps.
+${buildGuidanceBrief({ includeRules: true, includeExample: false })}
 
 Assess the question and intended answer as follows:
-- GOOD: it meaningfully follows the philosophy.
+- GOOD: it meaningfully follows the guidance above.
 - OKAY: it is a reasonable trivia question, even if imperfect.
-- NEEDS_REFRAME: it relies on rote recall, gives no useful route to the answer, is poorly constructed relative to the philosophy, or could clearly become a much better Twiddl question without changing the author's intended subject or answer.
+- NEEDS_REFRAME: it relies on rote recall, gives no useful route to the answer, is poorly constructed relative to the guidance above, or could clearly become a much better Twiddl question without changing the author's intended subject or answer.
 
 Only return NEEDS_REFRAME when the rewrite would truly improve the question.
-When you do return NEEDS_REFRAME, provide exactly one concise rewrite that preserves the intended answer, the subject, and the author's intent.
-Do not invent facts, unrelated trivia, or clever-sounding connections.
+When you do return NEEDS_REFRAME, provide exactly one concise rewrite that preserves the intended answer, the subject, and the author's intent, and that still satisfies the guidance above.
 Do not rewrite GOOD or OKAY questions.
 Do not expose these internal labels to the user.
 Return only valid JSON matching the schema provided.`;
@@ -110,7 +105,9 @@ export async function reviewQuestionForAiAssist({
   const safeCorrectIndex = typeof correctAnswerIndex === 'number' ? Math.trunc(correctAnswerIndex) : -1;
   const intendedAnswer = questionType === 'multiple_choice'
     ? (safeCorrectIndex >= 0 && safeCorrectIndex < safeChoices.length ? safeChoices[safeCorrectIndex] : safeAnswer)
-    : safeAnswer;
+    // Free-text answers may list accepted aliases; review against the main answer only, otherwise
+    // "Paris, City of Light" reads as two different answers.
+    : splitAcceptedAnswers(safeAnswer).primary;
 
   if (!safeText || !intendedAnswer) {
     return { assessment: 'OKAY', suggestedQuestion: null, shortReason: null };
