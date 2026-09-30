@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import type { AiAssistReview } from '@/lib/ai-assist';
@@ -26,28 +26,6 @@ function getStoredAiAssistPreference() {
   }
 }
 
-function buildAiAssistSignature({
-  text,
-  questionType,
-  choices,
-  correctAnswerIndex,
-  correctAnswer,
-}: {
-  text: string;
-  questionType: 'multiple_choice' | 'free_text';
-  choices: string[];
-  correctAnswerIndex: number;
-  correctAnswer: string;
-}) {
-  const normalizedText = text.trim();
-  const normalizedAnswer = correctAnswer.trim();
-  const choiceValue = questionType === 'multiple_choice'
-    ? choices.map((choice) => choice.trim()).join('||')
-    : '';
-
-  return [normalizedText, questionType, choiceValue, String(correctAnswerIndex), normalizedAnswer].join('::');
-}
-
 export default function DailyQuestionComposer({ onAsked }: Props) {
   const { session } = useAuth();
   const [text, setText] = useState('');
@@ -59,34 +37,23 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
   const [isSaving, setIsSaving] = useState(false);
   const [aiAssistEnabled, setAiAssistEnabled] = useState<boolean>(getStoredAiAssistPreference);
   const [aiAssistReview, setAiAssistReview] = useState<AiAssistReview | null>(null);
-  const [lastReviewedSignature, setLastReviewedSignature] = useState('');
+  // AI Assist is deliberately a single pass per question: once it has reviewed, later edits (including
+  // accepting a suggestion) are submitted as-is rather than reviewed again.
+  const [hasRunAiAssist, setHasRunAiAssist] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(AI_ASSIST_STORAGE_KEY, String(aiAssistEnabled));
   }, [aiAssistEnabled]);
 
-  const currentReviewSignature = useMemo(
-    () => buildAiAssistSignature({
-      text,
-      questionType,
-      choices,
-      correctAnswerIndex,
-      correctAnswer,
-    }),
-    [text, questionType, choices, correctAnswerIndex, correctAnswer],
-  );
-
   const handleChoiceChange = (index: number, value: string) => {
     setChoices((current) => current.map((choice, idx) => (idx === index ? value : choice)));
     setAiAssistReview(null);
-    setLastReviewedSignature('');
   };
 
   const handleAddChoice = () => {
     setChoices((current) => [...current, '']);
     setAiAssistReview(null);
-    setLastReviewedSignature('');
   };
 
   const handleRemoveChoice = (index: number) => {
@@ -94,7 +61,6 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
     setChoices((current) => current.filter((_, idx) => idx !== index));
     setCorrectAnswerIndex((current) => (current === index ? 0 : current > index ? current - 1 : current));
     setAiAssistReview(null);
-    setLastReviewedSignature('');
   };
 
   const submitQuestion = async (questionText: string) => {
@@ -149,7 +115,8 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
     setCorrectAnswerIndex(0);
     setCorrectAnswer('');
     setAiAssistReview(null);
-    setLastReviewedSignature('');
+    // A new question is starting, so the next one gets its own single AI Assist pass.
+    setHasRunAiAssist(false);
 
     if (onAsked) {
       onAsked();
@@ -189,39 +156,36 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
       return;
     }
 
-    if (aiAssistEnabled) {
-      if (lastReviewedSignature !== currentReviewSignature || !aiAssistReview) {
-        try {
-          const response = await fetch('/api/ai-assist', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              text: text.trim(),
-              questionType,
-              choices: questionType === 'multiple_choice' ? choicePayload.choices : [],
-              correctAnswerIndex: questionType === 'multiple_choice' ? choicePayload.correctAnswerIndex : -1,
-              correctAnswer: questionType === 'free_text' ? correctAnswer.trim() : null,
-            }),
-          });
+    // AI Assist gets exactly one pass per question. Once it has run, the text is submitted as it
+    // stands (an accepted suggestion or a manual edit is never reviewed a second time).
+    if (aiAssistEnabled && !hasRunAiAssist) {
+      setHasRunAiAssist(true);
 
-          if (response.ok) {
-            const review = (await response.json()) as AiAssistReview;
-            setAiAssistReview(review);
-            setLastReviewedSignature(currentReviewSignature);
+      try {
+        const response = await fetch('/api/ai-assist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: text.trim(),
+            questionType,
+            choices: questionType === 'multiple_choice' ? choicePayload.choices : [],
+            correctAnswerIndex: questionType === 'multiple_choice' ? choicePayload.correctAnswerIndex : -1,
+            correctAnswer: questionType === 'free_text' ? correctAnswer.trim() : null,
+          }),
+        });
 
-            if (review.assessment === 'NEEDS_REFRAME' && review.suggestedQuestion) {
-              return;
-            }
-          } else {
-            setAiAssistReview(null);
-            setLastReviewedSignature(currentReviewSignature);
+        if (response.ok) {
+          const review = (await response.json()) as AiAssistReview;
+          setAiAssistReview(review);
+
+          if (review.assessment === 'NEEDS_REFRAME' && review.suggestedQuestion) {
+            return;
           }
-        } catch {
+        } else {
           setAiAssistReview(null);
-          setLastReviewedSignature(currentReviewSignature);
         }
-      } else if (aiAssistReview?.assessment === 'NEEDS_REFRAME' && aiAssistReview.suggestedQuestion) {
-        return;
+      } catch {
+        setAiAssistReview(null);
       }
     }
 
@@ -232,13 +196,11 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
     if (!aiAssistReview || aiAssistReview.assessment !== 'NEEDS_REFRAME' || !aiAssistReview.suggestedQuestion) return;
     setText(aiAssistReview.suggestedQuestion);
     setAiAssistReview(null);
-    setLastReviewedSignature('');
     setMessage('');
   };
 
   const handleKeepMine = async () => {
     setAiAssistReview(null);
-    setLastReviewedSignature('');
     await submitQuestion(text);
   };
 
@@ -308,7 +270,6 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                 onChange={(event) => {
                   setText(event.target.value);
                   setAiAssistReview(null);
-                  setLastReviewedSignature('');
                 }}
                 rows={4}
                 className="mt-2 w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 focus:outline-none"
@@ -334,7 +295,6 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                       onChange={() => {
                         setCorrectAnswerIndex(index);
                         setAiAssistReview(null);
-                        setLastReviewedSignature('');
                       }}
                       className="h-4 w-4"
                     />
@@ -365,7 +325,6 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                   onChange={(event) => {
                     setCorrectAnswer(event.target.value);
                     setAiAssistReview(null);
-                    setLastReviewedSignature('');
                   }}
                   className="mt-2 w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 focus:outline-none"
                   placeholder="Paris, City of Light"

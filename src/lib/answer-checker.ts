@@ -87,3 +87,20 @@ export function describeAcceptedAnswer(storedAnswer: string) {
   const aliasesSentence = aliases.length > 0 ? ` We would also have accepted ${aliases.join(', ')}.` : '';
   return `The correct answer is ${primary}.${aliasesSentence} Minor deviations like punctuation, capitalisation or a small typo are accepted too.`;
 }
+
+/** The main answer, for showing back to whoever answered: "Paris" from "Paris, City of Light". */
+export function primaryAcceptedAnswer(storedAnswer: string) {
+  return splitAcceptedAnswers(storedAnswer).primary;
+}
+
+/**
+ * True when what someone typed is not simply the canonical answer, meaning the fuzzy grader accepted
+ * a near miss (a typo, punctuation, capitals) or an alias. Used to decide whether to show the
+ * original answer alongside a correct result.
+ */
+export function differsFromAcceptedAnswer(submitted: string, storedAnswer: string) {
+  const primary = primaryAcceptedAnswer(storedAnswer);
+  if (!primary) return false;
+
+  return normalizeAnswer(submitted) !== normalizeAnswer(primary);
+}

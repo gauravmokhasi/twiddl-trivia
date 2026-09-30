@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Question } from '@/lib/database.types';
-import { describeAcceptedAnswer } from '@/lib/answer-checker';
+import { describeAcceptedAnswer, differsFromAcceptedAnswer, primaryAcceptedAnswer } from '@/lib/answer-checker';
 
 export type AnswerOutcome = {
   isCorrect: boolean;
@@ -22,6 +22,17 @@ function explainCorrectAnswer(question: Question, correctText: string | null) {
   return question.question_type === 'free_text'
     ? describeAcceptedAnswer(correctText)
     : `The correct answer is: ${correctText}.`;
+}
+
+/**
+ * A correct free-text answer can still be a near miss, so note the original answer whenever the
+ * typing differed from it (a small typo, different punctuation, or an accepted alias).
+ */
+function originalAnswerNote(question: Question, submitted: string | null, correctText: string | null) {
+  if (question.question_type !== 'free_text' || !submitted || !correctText) return '';
+  if (!differsFromAcceptedAnswer(submitted, correctText)) return '';
+
+  return ` The original answer was ${primaryAcceptedAnswer(correctText)}.`;
 }
 
 type Props = {
@@ -59,9 +70,10 @@ export default function QuestionAnswerForm({ question, authorId, onResult, skipE
       setSelectedIndex(data.selectedChoiceIndex ?? null);
       setAnswerText(data.answerText ?? '');
       setIsLocked(true);
+      const note = originalAnswerNote(question, data.answerText ?? null, correctText);
       setStatusMessage(
         data.isCorrect
-          ? `You already answered this question. Your answer was correct${question.question_type === 'free_text' ? `: ${data.answerText ?? ''}` : `: ${question.choices[data.selectedChoiceIndex]}`}.`
+          ? `You already answered this question. Your answer was correct${question.question_type === 'free_text' ? `: ${data.answerText ?? ''}` : `: ${question.choices[data.selectedChoiceIndex]}`}.${note}`
           : `You already answered this question. Your answer was incorrect. ${explainCorrectAnswer(question, correctText)}`
       );
     };
@@ -122,7 +134,7 @@ export default function QuestionAnswerForm({ question, authorId, onResult, skipE
 
     if (data.isCorrect) {
       setStatusMessage(question.question_type === 'free_text'
-        ? 'Nice! Your answer is correct.'
+        ? `Nice! Your answer is correct.${originalAnswerNote(question, data.answerText ?? answerText.trim(), question.correct_answer ?? null)}`
         : `Nice! Your answer is correct. You chose: ${question.choices[data.selectedChoiceIndex]}.`);
     } else {
       const correctText = question.correct_answer ?? question.choices[data.correctAnswerIndex];

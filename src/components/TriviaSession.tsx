@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import QuestionAnswerForm, { type AnswerOutcome } from '@/components/QuestionAnswerForm';
-import { describeAcceptedAnswer } from '@/lib/answer-checker';
+import { describeAcceptedAnswer, differsFromAcceptedAnswer, primaryAcceptedAnswer } from '@/lib/answer-checker';
 import { formatRelativeDate } from '@/lib/utils';
 import type { SessionQuestion } from '@/lib/session-questions';
 
@@ -98,6 +98,15 @@ export default function TriviaSession({ questions, headerLabel = "Today's twiddl
   const pickedText = outcome
     ? outcome.answerText ?? (outcome.selectedChoiceIndex !== null ? currentQuestion.choices[outcome.selectedChoiceIndex] ?? null : null)
     : null;
+  // A correct free-text answer can still be a near miss (a typo or an alias), so show the original
+  // answer whenever the typing differed from it.
+  const acceptedOriginalAnswer = outcome?.isCorrect
+    && currentQuestion.question_type === 'free_text'
+    && outcome.correctText
+    && pickedText
+    && differsFromAcceptedAnswer(pickedText, outcome.correctText)
+    ? primaryAcceptedAnswer(outcome.correctText)
+    : null;
   return (
     <section className="mx-auto max-w-3xl space-y-5 pt-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -131,6 +140,11 @@ export default function TriviaSession({ questions, headerLabel = "Today's twiddl
           </p>
           {pickedText ? (
             <p className="mt-2 text-sm text-zinc-300">Your answer: <span className="font-semibold text-zinc-100">{pickedText}</span></p>
+          ) : null}
+          {acceptedOriginalAnswer ? (
+            <p className="mt-2 text-sm text-zinc-300">
+              The original answer was <span className="font-semibold text-zinc-100">{acceptedOriginalAnswer}</span>.
+            </p>
           ) : null}
           {!outcome.isCorrect && outcome.correctText ? (
             currentQuestion.question_type === 'free_text' ? (
