@@ -4,7 +4,7 @@ Twiddl Trivia is a social quiz app built with Next.js, TypeScript, Tailwind CSS,
 
 ## Features
 
-- Email authentication through Supabase Auth
+- Email authentication through Supabase Auth (magic link) and Google sign-in, both using Supabase Auth
 - Username setup with unique profile handles
 - Public/private profiles
 - Universe directory for public profiles

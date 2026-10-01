@@ -9,9 +9,33 @@
 
 ## 2) Configure Auth
 
+Email sign-in (magic link) and Google sign-in are both handled by Supabase Auth. Brevo is only the SMTP provider behind Supabase and should never be called from application code.
+
+### Email (magic link)
+
 1. In Supabase, open `Authentication -> Settings`.
 2. Under `Enable email sign-ups`, make sure email auth is enabled.
-3. Enable `Sign in with OTP` if you want passwordless login.
+3. Enable `Sign in with OTP` for passwordless login.
+4. Set `Authentication -> Emails -> SMTP Settings` to your Brevo credentials so Supabase delivers the sign-in emails.
+
+### Google sign-in
+
+1. In Google Cloud, create an OAuth client of type **Web application**.
+2. Authorized JavaScript origins:
+   - `https://twiddl-trivia.vercel.app`
+   - `http://localhost:3000`
+3. Authorized redirect URI (this is Supabase's callback, not the app's):
+   - `https://<your-project-ref>.supabase.co/auth/v1/callback`
+   - For this project that is `https://bqztqkicgzhadhkaxxgg.supabase.co/auth/v1/callback`
+4. In Supabase, open `Authentication -> Providers -> Google`, enable it, and paste the Google **Client ID** and **Client Secret**. The secret lives only in Supabase; never put it in application code or a `NEXT_PUBLIC_*` variable.
+5. In Supabase, open `Authentication -> URL Configuration`:
+   - Site URL: `https://twiddl-trivia.vercel.app`
+   - Redirect URLs:
+     - `https://twiddl-trivia.vercel.app/auth/callback`
+     - `http://localhost:3000/auth/callback`
+     - `https://*-<your-vercel-scope>.vercel.app/auth/callback` (optional, for preview deployments)
+
+The app builds its redirect from `window.location.origin`, so every origin you test from must be in the Redirect URLs list or Supabase falls back to the Site URL. Google sign-in does not require any extra Vercel environment variable.
 
 ## 3) Create the database tables and policies
 

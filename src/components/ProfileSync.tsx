@@ -1,15 +1,21 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 
 export default function ProfileSync() {
   const { session } = useAuth();
+  const userId = session?.user?.id;
+  const syncedUserId = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!session?.user?.id) {
+    // Sync once per user. Depending on the id rather than the session object avoids a repeat POST on
+    // every token refresh, and the ref makes it resilient to React Strict Mode double-invoking effects.
+    if (!userId || syncedUserId.current === userId) {
       return;
     }
+
+    syncedUserId.current = userId;
 
     const syncProfile = async () => {
       await fetch('/api/profile-sync', {
@@ -18,7 +24,7 @@ export default function ProfileSync() {
     };
 
     syncProfile();
-  }, [session]);
+  }, [userId]);
 
   return null;
 }

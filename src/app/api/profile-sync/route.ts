@@ -46,7 +46,26 @@ export async function POST() {
   }, { onConflict: 'id' });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // A Google sign-in derives its username from the email local part, which can collide with an
+    // existing profile (for example two "gaurav" accounts). Retry once with a name derived from the
+    // auth user id, which is unique and marks the profile as still needing a username.
+    const isUsernameCollision = /duplicate key|unique constraint/i.test(error.message) && /username/i.test(error.message);
+
+    if (!isUsernameCollision) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const { error: retryError } = await (supabaseAdmin.from('profiles') as any).upsert({
+      id: user.id,
+      email,
+      username: `user_${user.id}`,
+      display_name,
+      is_public,
+    }, { onConflict: 'id' });
+
+    if (retryError) {
+      return NextResponse.json({ error: retryError.message }, { status: 500 });
+    }
   }
 
   try {

@@ -8,6 +8,8 @@ import ProfileButton from '@/components/profile-button';
 import ProfileEditor from '@/components/profile-editor';
 import ProfileVisibilityToggle from '@/components/profile-visibility-toggle';
 import TriviaSession from '@/components/TriviaSession';
+import TwiddlPulse from '@/components/TwiddlPulse';
+import { buildPulseDays, PULSE_WINDOW_DAYS } from '@/lib/pulse';
 import { countUnansweredQuestions, unansweredSessionQuestions } from '@/lib/session-questions';
 import type { Database } from '@/lib/database.types';
 
@@ -140,6 +142,36 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     ? await countUnansweredQuestions(currentUserId, typedUserQuestions.map((question) => question.id))
     : 0;
 
+  // Twiddl Pulse reuses the asked/answered timestamps already loaded above and adds one aggregate
+  // query: answers left by OTHER people on this user's questions, within the displayed window.
+  // Scoped to this profile, bounded by date, and only the two columns needed. It is wrapped so a
+  // failure here can never break the rest of the profile page.
+  const windowStart = new Date(new Date().getTime() - (PULSE_WINDOW_DAYS - 1) * 24 * 60 * 60 * 1000).toISOString();
+  let receivedAnswerDates: string[] = [];
+
+  try {
+    const { data: receivedAnswers, error: receivedError } = await (supabaseAdmin
+      .from('answers') as any)
+      .select('created_at, responder_id, questions!inner(author_id)')
+      .eq('questions.author_id', user.id)
+      .neq('responder_id', user.id)
+      .gte('created_at', windowStart);
+
+    if (receivedError) {
+      console.warn(`[pulse] received-answer lookup failed for ${user.username}: ${receivedError.message}`);
+    } else {
+      receivedAnswerDates = ((receivedAnswers ?? []) as { created_at: string }[]).map((row) => row.created_at);
+    }
+  } catch (pulseError) {
+    console.warn(`[pulse] received-answer lookup threw for ${user.username}: ${pulseError instanceof Error ? pulseError.message : 'unknown error'}`);
+  }
+
+  const pulseDays = buildPulseDays({
+    askedDates: typedAskedDates?.map((item) => item.created_at) ?? [],
+    answeredDates: typedAnsweredDates?.map((item) => item.created_at) ?? [],
+    receivedDates: receivedAnswerDates,
+  });
+
   return (
     <div className="space-y-6">
       <section className="card relative overflow-hidden p-6 md:p-8">
@@ -178,6 +210,8 @@ export default async function ProfilePage({ params, searchParams }: Props) {
           <div className="stat"><strong>{qaStreak}</strong><span>Q&amp;A streak</span></div>
         </div>
       </section>
+
+      <TwiddlPulse activity={pulseDays} />
 
       <section className="grid gap-5 md:grid-cols-2">
         <div className="card p-5">
