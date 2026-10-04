@@ -1,11 +1,30 @@
+import { redirect } from 'next/navigation';
 import { createServerSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getDailyQuestionStatus, DAILY_QUESTION_WINDOW_MS } from '@/lib/daily-question';
 import { unansweredSessionQuestions } from '@/lib/session-questions';
+import { exchangeAuthCode } from '@/lib/auth-code';
 import HomeFlow from '@/components/HomeFlow';
 import LoggedOutLanding from '@/components/LoggedOutLanding';
 
-export default async function HomePage() {
+type Props = {
+  searchParams: Promise<{
+    code?: string;
+  }>;
+};
+
+export default async function HomePage({ searchParams }: Props) {
+  // A sign-in link can land here when the callback URL is not in Supabase's redirect allow-list, in
+  // which case Supabase uses the Site URL (this route). Exchanging the code here as well means the
+  // first click signs the user in instead of the second.
+  const { code } = await searchParams;
+  if (code) {
+    const exchanged = await exchangeAuthCode(code);
+    if (exchanged) {
+      redirect('/');
+    }
+  }
+
   const supabase = await createServerSupabase();
   const { data: { session } } = await supabase.auth.getSession();
 

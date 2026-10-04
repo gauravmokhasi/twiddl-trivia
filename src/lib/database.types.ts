@@ -107,6 +107,29 @@ export interface Database {
           created_at?: string;
         };
       };
+      question_reports: {
+        Row: {
+          id: string;
+          question_id: string;
+          reporter_id: string;
+          reason: 'answer_wrong' | 'ambiguous';
+          is_anonymous: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          question_id: string;
+          reporter_id: string;
+          reason: 'answer_wrong' | 'ambiguous';
+          is_anonymous?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          reason?: 'answer_wrong' | 'ambiguous';
+          is_anonymous?: boolean;
+          created_at?: string;
+        };
+      };
     };
     Views: {};
     Functions: {};

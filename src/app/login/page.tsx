@@ -1,24 +1,31 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import AuthCard from '@/components/AuthCard';
 import { createServerSupabase } from '@/lib/supabase-server';
-import { AUTH_CALLBACK_FAILED_MESSAGE, OAUTH_CALLBACK_FAILED_MESSAGE } from '@/lib/auth-messages';
+import { exchangeAuthCode } from '@/lib/auth-code';
+import { AUTH_CALLBACK_FAILED_MESSAGE } from '@/lib/auth-messages';
 
 type Props = {
   searchParams: Promise<{
     error?: string;
+    code?: string;
   }>;
-};
-
-/** The callback route sends these reasons back as ?error=..., never raw provider messages. */
-const ERROR_MESSAGES: Record<string, string> = {
-  auth: AUTH_CALLBACK_FAILED_MESSAGE,
-  oauth: OAUTH_CALLBACK_FAILED_MESSAGE,
 };
 
 export default async function LoginPage({ searchParams }: Props) {
   // searchParams is a Promise in this version of Next, so it has to be awaited before use.
-  const { error } = await searchParams;
-  const message = error ? ERROR_MESSAGES[error] : undefined;
+  const { error, code } = await searchParams;
+
+  // If a sign-in link lands here (rather than on /auth/callback), exchange the code server-side so
+  // the very first click signs the user in, and then continue with a clean URL.
+  if (code) {
+    const exchanged = await exchangeAuthCode(code);
+    if (exchanged) {
+      redirect('/');
+    }
+  }
+
+  const message = error === 'auth' ? AUTH_CALLBACK_FAILED_MESSAGE : undefined;
 
   // Decided on the server so an already-signed-in visitor never sees the sign-in form flash.
   const supabase = await createServerSupabase();

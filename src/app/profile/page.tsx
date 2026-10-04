@@ -2,9 +2,13 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createServerSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requireAskedToday } from '@/lib/daily-question-gate';
 import UsernamePrompt from '@/components/UsernamePrompt';
 
 export default async function MyProfilePage() {
+  // Off limits until today's question has been asked. Signed-out visitors fall through unchanged.
+  await requireAskedToday();
+
   const supabase = await createServerSupabase();
   const { data: { session } } = await supabase.auth.getSession();
 

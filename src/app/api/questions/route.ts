@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createRouteSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { answerQuestionAsBot, ensureTwiddlBot } from '@/lib/twiddl-bot';
+import { answerQuestionAsTwiddloo, ensureTwiddloo } from '@/lib/twiddloo';
 import { getDailyQuestionStatus } from '@/lib/daily-question';
+import { canDeleteQuestion } from '@/lib/question-deletion';
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -51,10 +52,64 @@ export async function POST(request: Request) {
   }
 
   try {
-    await ensureTwiddlBot();
-    if (insertedQuestion) await answerQuestionAsBot(insertedQuestion);
-  } catch (botError) {
-    return NextResponse.json({ error: botError instanceof Error ? botError.message : 'Unable to record twiddlBot answer.' }, { status: 500 });
+    await ensureTwiddloo();
+    if (insertedQuestion) await answerQuestionAsTwiddloo(insertedQuestion);
+  } catch (twiddlooError) {
+    return NextResponse.json({ error: twiddlooError instanceof Error ? twiddlooError.message : 'Unable to record twiddloo answer.' }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
+}
+
+/**
+ * Removes one of the viewer's own questions. Answers and quality reports are attached with
+ * "on delete cascade", so they go with it rather than being left orphaned.
+ */
+export async function DELETE(request: Request) {
+  const url = new URL(request.url);
+  const questionId = url.searchParams.get('questionId');
+
+  if (!questionId) {
+    return NextResponse.json({ error: 'questionId is required.' }, { status: 400 });
+  }
+
+  const supabase = await createRouteSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
+  }
+
+  const { data: questionData, error: questionError } = await supabaseAdmin
+    .from('questions')
+    .select('id, author_id, created_at')
+    .eq('id', questionId)
+    .single();
+  const question = questionData as { id: string; author_id: string; created_at: string } | null;
+
+  if (questionError || !question) {
+    return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
+  }
+
+  // Author-only, and not while it is still today's question: the daily gate counts the newest
+  // question a user asked, so deleting it would hand the 24-hour rule a loophole.
+  const verdict = canDeleteQuestion({
+    viewerId: session.user.id,
+    authorId: question.author_id,
+    createdAt: question.created_at,
+  });
+
+  if (!verdict.allowed) {
+    return NextResponse.json({ error: verdict.error }, { status: verdict.status });
+  }
+
+  const { error: deleteError } = await (supabaseAdmin
+    .from('questions')
+    .delete()
+    .eq('id', question.id) as any);
+
+  if (deleteError) {
+    return NextResponse.json({ error: deleteError.message }, { status: 500 });
   }
 
   return NextResponse.json({ success: true });

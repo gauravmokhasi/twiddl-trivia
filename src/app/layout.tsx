@@ -4,14 +4,18 @@ import './globals.css';
 import SupabaseProvider from '@/components/SupabaseProvider';
 import AuthStatus from '@/components/AuthStatus';
 import ProfileSync from '@/components/ProfileSync';
-import MyProfileLink from '@/components/MyProfileLink';
+import NavLinks from '@/components/NavLinks';
+import { getDailyQuestionGate } from '@/lib/daily-question-gate';
 
 export const metadata: Metadata = {
   title: 'Twiddl Trivia',
   description: 'Social quiz app prototype for questions, followers, and discoverable profiles.',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Members who have not asked today are kept on the feed, so the header links render inert for them.
+  const { locked } = await getDailyQuestionGate();
+
   return (
     <html lang="en">
       <body>
@@ -31,10 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <AuthStatus />
                 </div>
                 <nav className="flex items-center gap-1 rounded-xl bg-white/[0.03] p-1 text-sm font-semibold text-zinc-500">
-                  <Link className="rounded-lg px-3 py-2 transition hover:bg-white/[0.06] hover:text-zinc-100" href="/">Feed</Link>
-                  <Link className="rounded-lg px-3 py-2 transition hover:bg-white/[0.06] hover:text-zinc-100" href="/universe">Universe</Link>
-                  <Link className="rounded-lg bg-violet-500/20 px-3 py-2 text-violet-100 ring-1 ring-inset ring-violet-400/40 transition hover:bg-violet-500/30 hover:text-white" href="/explore">Explore</Link>
-                  <MyProfileLink />
+                  <NavLinks locked={locked} />
                 </nav>
               </div>
             </header>

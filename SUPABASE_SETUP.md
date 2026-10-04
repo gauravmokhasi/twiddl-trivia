@@ -9,7 +9,7 @@
 
 ## 2) Configure Auth
 
-Email sign-in (magic link) and Google sign-in are both handled by Supabase Auth. Brevo is only the SMTP provider behind Supabase and should never be called from application code.
+Email sign-in (magic link) is handled by Supabase Auth. Brevo is only the SMTP provider behind Supabase and should never be called from application code.
 
 ### Email (magic link)
 
@@ -17,17 +17,6 @@ Email sign-in (magic link) and Google sign-in are both handled by Supabase Auth.
 2. Under `Enable email sign-ups`, make sure email auth is enabled.
 3. Enable `Sign in with OTP` for passwordless login.
 4. Set `Authentication -> Emails -> SMTP Settings` to your Brevo credentials so Supabase delivers the sign-in emails.
-
-### Google sign-in
-
-1. In Google Cloud, create an OAuth client of type **Web application**.
-2. Authorized JavaScript origins:
-   - `https://twiddl-trivia.vercel.app`
-   - `http://localhost:3000`
-3. Authorized redirect URI (this is Supabase's callback, not the app's):
-   - `https://<your-project-ref>.supabase.co/auth/v1/callback`
-   - For this project that is `https://bqztqkicgzhadhkaxxgg.supabase.co/auth/v1/callback`
-4. In Supabase, open `Authentication -> Providers -> Google`, enable it, and paste the Google **Client ID** and **Client Secret**. The secret lives only in Supabase; never put it in application code or a `NEXT_PUBLIC_*` variable.
 5. In Supabase, open `Authentication -> URL Configuration`:
    - Site URL: `https://twiddl-trivia.vercel.app`
    - Redirect URLs:
@@ -35,7 +24,7 @@ Email sign-in (magic link) and Google sign-in are both handled by Supabase Auth.
      - `http://localhost:3000/auth/callback`
      - `https://*-<your-vercel-scope>.vercel.app/auth/callback` (optional, for preview deployments)
 
-The app builds its redirect from `window.location.origin`, so every origin you test from must be in the Redirect URLs list or Supabase falls back to the Site URL. Google sign-in does not require any extra Vercel environment variable.
+The app builds its sign-in redirect from `window.location.origin`, so every origin you sign in from should be listed above. If a callback URL is missing from that list Supabase falls back to the Site URL instead; the app exchanges the code there too, but listing the callback is what keeps sign-in working reliably on the first click.
 
 ## 3) Create the database tables and policies
 
@@ -89,9 +78,24 @@ create table if not exists bot_follow_opt_outs (
   user_id uuid primary key references profiles(id) on delete cascade,
   created_at timestamptz not null default now()
 );
+
+-- question_reports table
+-- Private quality reports from people who answered a question incorrectly. Only the question's
+-- author ever reads these, and only through server code using the service role.
+create table if not exists question_reports (
+  id uuid primary key default uuid_generate_v4(),
+  question_id uuid not null references questions(id) on delete cascade,
+  reporter_id uuid not null references profiles(id) on delete cascade,
+  reason text not null check (reason in ('answer_wrong', 'ambiguous')),
+  is_anonymous boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (question_id, reporter_id)
+);
+
+create index if not exists question_reports_question_id_idx on question_reports (question_id);
 ```
 
-If the base tables already exist, run this additive migration once before using free-text questions and twiddlBot:
+If the base tables already exist, run this additive migration once before using free-text questions and twiddloo:
 
 ```sql
 alter table questions add column if not exists question_type text not null default 'multiple_choice';
@@ -100,7 +104,7 @@ alter table answers add column if not exists answer_text text;
 alter table answers alter column selected_choice_index drop not null;
 
 insert into profiles (id, email, username, display_name, bio, is_public)
-values ('00000000-0000-4000-8000-000000000001', 'twiddlbot@twiddl.local', 'twiddlBot', 'twiddlBot', 'An automated trivia companion.', true)
+values ('00000000-0000-4000-8000-000000000001', 'twiddloo@twiddl.local', 'twiddloo', 'twiddloo', 'An automated trivia companion.', true)
 on conflict (id) do update set is_public = true;
 
 insert into follows (follower_id, followee_id)
@@ -116,6 +120,107 @@ where id <> '00000000-0000-4000-8000-000000000001'
 on conflict do nothing;
 ```
 
+If the base tables already exist, run this additive migration once before using question quality reports:
+
+```sql
+create table if not exists question_reports (
+  id uuid primary key default uuid_generate_v4(),
+  question_id uuid not null references questions(id) on delete cascade,
+  reporter_id uuid not null references profiles(id) on delete cascade,
+  reason text not null check (reason in ('answer_wrong', 'ambiguous')),
+  is_anonymous boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (question_id, reporter_id)
+);
+
+create index if not exists question_reports_question_id_idx on question_reports (question_id);
+
+-- Deliberately no policies below. These reports are private to the question's author, and the app
+-- reads and writes them only through the service-role client, which bypasses row-level security.
+alter table question_reports enable row level security;
+
+grant all privileges on table question_reports to service_role;
+```
+
+If the table is missing, nothing breaks: the question page simply renders without the quality summary, and the report prompt returns "Unable to send that right now."
+
+The automated profile used to be called `twiddlBot`. Run this once to rename it to `twiddloo`; it is safe to re-run, and it can run before or after the identity migration below:
+
+```sql
+update profiles
+set username = 'twiddloo',
+    display_name = 'twiddloo',
+    email = 'twiddloo@twiddl.local'
+where id = '00000000-0000-4000-8000-000000000001';
+```
+
+Handles and public names share one namespace, so no two profiles can hold the same username or the same public name, and a public name cannot shadow another profile's handle. Comparison ignores case and surrounding spaces, so `Maya`, `maya` and `maya ` are the same claim.
+
+**Run the two preview queries first.** They should return no rows. If either does, fix those profiles before creating the index, because the index refuses to be built over existing duplicates:
+
+```sql
+select lower(username) as value, count(*) as profiles, array_agg(username) as handles
+from profiles
+group by lower(username)
+having count(*) > 1;
+
+select lower(display_name) as value, count(*) as profiles, array_agg(username) as handles
+from profiles
+where display_name is not null and display_name <> ''
+group by lower(display_name)
+having count(*) > 1;
+```
+
+Then apply the rule itself:
+
+```sql
+-- One handle per person, ignoring case.
+create unique index if not exists profiles_username_lower_key on profiles (lower(username));
+
+-- A handle and a public name may not collide with each other either, which no single index can
+-- express, so the rule lives in a trigger.
+create or replace function enforce_unique_profile_identity()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- Only identity changes are validated, so updating another column (or an untouched legacy row that
+  -- already shares a name) can never start failing.
+  if tg_op = 'UPDATE'
+    and lower(new.username) = lower(old.username)
+    and lower(coalesce(new.display_name, '')) = lower(coalesce(old.display_name, '')) then
+    return new;
+  end if;
+
+  if exists (
+    select 1
+    from profiles p
+    where p.id <> new.id
+      and (
+        lower(p.username) = lower(new.username)
+        or lower(p.username) = lower(coalesce(new.display_name, ''))
+        or (
+          new.display_name is not null
+          and lower(new.display_name) <> ''
+          and lower(coalesce(p.display_name, '')) = lower(new.display_name)
+        )
+      )
+  ) then
+    raise exception 'That username or public name is already taken.' using errcode = 'unique_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_identity_unique on profiles;
+create trigger profiles_identity_unique
+  before insert or update on profiles
+  for each row execute function enforce_unique_profile_identity();
+```
+
+The app also pre-checks the same rule so the user gets a specific message ("That username is already taken." rather than a raw constraint error), but the trigger is the authority: a race between the two still cannot create a duplicate.
+
 Enable row-level security and add the policies required by browser/server clients:
 
 ```sql
@@ -124,6 +229,7 @@ alter table follows enable row level security;
 alter table questions enable row level security;
 alter table answers enable row level security;
 alter table bot_follow_opt_outs enable row level security;
+alter table question_reports enable row level security;
 
 create policy "Public profiles are readable"
   on profiles for select using (is_public = true or auth.uid() = id);
@@ -151,6 +257,8 @@ create policy "Users can create their own answers"
   on answers for insert with check (auth.uid() = responder_id);
 ```
 
+No policies are added for `question_reports` on purpose. The table is written only by the report API route and read only for the question's author, both through the service-role client, so no browser or session client should touch it at all.
+
 The application uses the server-only service-role client for protected server reads and writes. Grant it access explicitly:
 
 ```sql
@@ -158,6 +266,7 @@ grant usage on schema public to service_role;
 grant all privileges on all tables in schema public to service_role;
 grant all privileges on all sequences in schema public to service_role;
 grant all privileges on bot_follow_opt_outs to service_role;
+grant all privileges on question_reports to service_role;
 ```
 
 ## 4) Set up Supabase Auth hooks
@@ -210,5 +319,7 @@ insert into profiles (email, username, display_name, bio, is_public) values
 - Do not commit `.env.local`.
 - Apply database constraints and policies in Supabase before deploying.
 - The `answers` table has a unique `(question_id, responder_id)` constraint so a user can answer each question only once.
-- Deployments using `vercel.json` call `/api/cron/twiddl-bot` once per day. Set `CRON_SECRET` in the deployment environment; Vercel should be configured to send the same secret as a bearer token.
-- Existing users are initially followed to twiddlBot by the migration above. The app preserves an explicit unfollow on subsequent profile syncs.
+- Handles and public names are unique, ignoring case, enforced by the `profiles_username_lower_key` index and the `profiles_identity_unique` trigger.
+- Authors delete their own questions through the service-role client. The `questions` table has no `delete` policy, so no browser or session client can remove rows directly, and `answers` and `question_reports` follow their question away through `on delete cascade`.
+- Deployments using `vercel.json` call `/api/cron/twiddloo` once per day. Set `CRON_SECRET` in the deployment environment; Vercel should be configured to send the same secret as a bearer token.
+- Existing users are initially followed to twiddloo by the migration above. The app preserves an explicit unfollow on subsequent profile syncs.

@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { supabaseAdmin } from './supabase-admin';
 
 export const DAILY_QUESTION_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -9,9 +10,11 @@ type DailyQuestionStatus = {
 
 /**
  * Single source of truth for the "one question per 24 hours" rule.
- * Used by the ask API route and by the home page routing.
+ * Used by the ask API route, the home page routing, and the app-wide route guard.
+ *
+ * Memoised per request so a layout and the page it wraps never query this twice in one render.
  */
-export async function getDailyQuestionStatus(userId: string): Promise<DailyQuestionStatus> {
+export const getDailyQuestionStatus = cache(async (userId: string): Promise<DailyQuestionStatus> => {
   const { data, error } = await supabaseAdmin
     .from('questions')
     .select('created_at')
@@ -30,4 +33,4 @@ export async function getDailyQuestionStatus(userId: string): Promise<DailyQuest
 
   const elapsed = Date.now() - new Date(latest.created_at).getTime();
   return { hasAsked: elapsed < DAILY_QUESTION_WINDOW_MS, error: null };
-}
+});

@@ -7,10 +7,12 @@ import { currentQaStreak } from '@/lib/streak';
 import ProfileButton from '@/components/profile-button';
 import ProfileEditor from '@/components/profile-editor';
 import ProfileVisibilityToggle from '@/components/profile-visibility-toggle';
+import DeleteQuestionButton from '@/components/DeleteQuestionButton';
 import TriviaSession from '@/components/TriviaSession';
 import TwiddlPulse from '@/components/TwiddlPulse';
 import { buildPulseDays, PULSE_WINDOW_DAYS } from '@/lib/pulse';
 import { countUnansweredQuestions, unansweredSessionQuestions } from '@/lib/session-questions';
+import { requireAskedToday } from '@/lib/daily-question-gate';
 import type { Database } from '@/lib/database.types';
 
 type Props = {
@@ -24,6 +26,9 @@ type Props = {
 };
 
 export default async function ProfilePage({ params, searchParams }: Props) {
+  // Off limits until today's question has been asked. Signed-out visitors fall through unchanged.
+  await requireAskedToday();
+
   const supabase = await createServerSupabase();
   const { username } = await params;
   const { play, view } = await searchParams;
@@ -248,16 +253,20 @@ export default async function ProfilePage({ params, searchParams }: Props) {
       </section>
 
       <section className="card p-5 md:p-6">
-        <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Past questions</h3><span className="text-sm text-zinc-500">Your archive</span></div>
+        <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Past questions</h3><span className="text-sm text-zinc-500">{isCurrentUser ? 'Your archive' : 'Their archive'}</span></div>
         {!typedUserQuestions || typedUserQuestions.length === 0 ? (
           <p className="mt-4 text-slate-700">This user has not asked any questions yet.</p>
         ) : (
           <div className="mt-4 space-y-4">
             {typedUserQuestions.map((question) => (
-              <Link key={question.id} href={`/questions/${question.id}`} className="block border-b border-white/[0.06] py-4 last:border-0 hover:text-violet-300 transition">
-                <p className="font-semibold text-zinc-200">{question.text}</p>
-                <p className="mt-1 text-xs text-zinc-500">{formatRelativeDate(question.created_at)}</p>
-              </Link>
+              <div key={question.id} className="flex flex-wrap items-start justify-between gap-3 border-b border-white/[0.06] py-4 last:border-0">
+                <Link href={`/questions/${question.id}`} className="min-w-0 flex-1 transition hover:text-violet-300">
+                  <p className="font-semibold text-zinc-200">{question.text}</p>
+                  <p className="mt-1 text-xs text-zinc-500">{formatRelativeDate(question.created_at)}</p>
+                </Link>
+                {/* Only the author sees this, and the API refuses anything younger than a day. */}
+                {isCurrentUser ? <DeleteQuestionButton questionId={question.id} /> : null}
+              </div>
             ))}
           </div>
         )}

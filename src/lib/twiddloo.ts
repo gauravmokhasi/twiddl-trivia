@@ -1,9 +1,9 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { isAnswerCorrect } from '@/lib/answer-checker';
-import { generateBotQuestion } from '@/lib/bot-question-generator';
+import { generateTwiddlooQuestion } from '@/lib/twiddloo-question-generator';
 import { guessAnswerWithGroq, matchGuessToChoices } from '@/lib/groq-answer';
 
-export const TWIDDL_BOT_ID = '00000000-0000-4000-8000-000000000001';
+export const TWIDDLOO_ID = '00000000-0000-4000-8000-000000000001';
 
 /** Shape shared by the Groq-generated question and the static fallback list. */
 type PoolQuestion = {
@@ -14,12 +14,12 @@ type PoolQuestion = {
   correctAnswer: string | null;
 };
 
-export async function ensureTwiddlBot() {
+export async function ensureTwiddloo() {
   const { error } = await (supabaseAdmin.from('profiles') as any).upsert({
-    id: TWIDDL_BOT_ID,
-    email: 'twiddlbot@twiddl.local',
-    username: 'twiddlBot',
-    display_name: 'twiddlBot',
+    id: TWIDDLOO_ID,
+    email: 'twiddloo@twiddl.local',
+    username: 'twiddloo',
+    display_name: 'twiddloo',
     bio: 'An automated trivia companion.',
     is_public: true,
   }, { onConflict: 'id' });
@@ -28,22 +28,22 @@ export async function ensureTwiddlBot() {
 }
 
 export async function ensureDefaultRelationshipsForUser(userId: string) {
-  await ensureTwiddlBot();
+  await ensureTwiddloo();
 
-  if (userId === TWIDDL_BOT_ID) return;
+  if (userId === TWIDDLOO_ID) return;
 
-  const { error: botFollowsUserError } = await (supabaseAdmin.from('follows') as any).upsert({
-    follower_id: TWIDDL_BOT_ID,
+  const { error: twiddlooFollowsUserError } = await (supabaseAdmin.from('follows') as any).upsert({
+    follower_id: TWIDDLOO_ID,
     followee_id: userId,
   }, { onConflict: ['follower_id', 'followee_id'] });
 
-  if (botFollowsUserError) throw new Error(botFollowsUserError.message);
+  if (twiddlooFollowsUserError) throw new Error(twiddlooFollowsUserError.message);
 
   const { data: existingFollow, error: existingFollowError } = await supabaseAdmin
     .from('follows')
     .select('follower_id')
     .eq('follower_id', userId)
-    .eq('followee_id', TWIDDL_BOT_ID)
+    .eq('followee_id', TWIDDLOO_ID)
     .maybeSingle();
 
   if (existingFollowError) throw new Error(existingFollowError.message);
@@ -57,12 +57,12 @@ export async function ensureDefaultRelationshipsForUser(userId: string) {
   if (optOut) return;
 
   if (!existingFollow) {
-    const { error: userFollowsBotError } = await (supabaseAdmin.from('follows') as any).insert({
+    const { error: userFollowsTwiddlooError } = await (supabaseAdmin.from('follows') as any).insert({
       follower_id: userId,
-      followee_id: TWIDDL_BOT_ID,
+      followee_id: TWIDDLOO_ID,
     });
 
-    if (userFollowsBotError) throw new Error(userFollowsBotError.message);
+    if (userFollowsTwiddlooError) throw new Error(userFollowsTwiddlooError.message);
   }
 }
 
@@ -70,7 +70,7 @@ function deterministicIndex(value: string, length: number) {
   return [...value].reduce((total, character) => total + character.charCodeAt(0), 0) % length;
 }
 
-export async function answerQuestionAsBot(question: {
+export async function answerQuestionAsTwiddloo(question: {
   id: string;
   text: string;
   question_type: 'multiple_choice' | 'free_text';
@@ -87,7 +87,7 @@ export async function answerQuestionAsBot(question: {
   const grading = gradingData as { correct_answer_index: number; correct_answer: string | null } | null;
 
   // Genuine attempt: the answer key is never sent, and if Groq is unavailable we fall back to a
-  // simple guess, so the bot can get questions wrong the way a player can.
+  // simple guess, so twiddloo can get questions wrong the way a player can.
   const guess = await guessAnswerWithGroq(question.text);
   const fallbackText = question.text.split(/\s+/).slice(-1)[0]?.replace(/[^a-z0-9]/gi, '') || 'I am not sure';
 
@@ -98,7 +98,7 @@ export async function answerQuestionAsBot(question: {
     ? (guess ?? fallbackText)
     : null;
 
-  console.log(`[twiddlBot] answering ${question.id} with ${guess ? `"${guess}"` : 'a last-word guess'}`);
+  console.log(`[twiddloo] answering ${question.id} with ${guess ? `"${guess}"` : 'a last-word guess'}`);
 
   const isCorrect = question.question_type === 'free_text'
     ? isAnswerCorrect(answerText ?? '', grading?.correct_answer ?? '')
@@ -106,7 +106,7 @@ export async function answerQuestionAsBot(question: {
 
   const { error } = await (supabaseAdmin.from('answers') as any).upsert({
     question_id: question.id,
-    responder_id: TWIDDL_BOT_ID,
+    responder_id: TWIDDLOO_ID,
     selected_choice_index: selectedChoiceIndex,
     answer_text: answerText,
     is_correct: isCorrect,
@@ -115,8 +115,8 @@ export async function answerQuestionAsBot(question: {
   if (error) throw new Error(error.message);
 }
 
-export async function seedTodaysBotQuestion() {
-  await ensureTwiddlBot();
+export async function seedTodaysTwiddlooQuestion() {
+  await ensureTwiddloo();
 
   const startOfToday = new Date();
   startOfToday.setUTCHours(0, 0, 0, 0);
@@ -124,7 +124,7 @@ export async function seedTodaysBotQuestion() {
   const { data: existingQuestionData, error: existingQuestionError } = await supabaseAdmin
     .from('questions')
     .select('id')
-    .eq('author_id', TWIDDL_BOT_ID)
+    .eq('author_id', TWIDDLOO_ID)
     .gte('created_at', startOfToday.toISOString())
     .maybeSingle();
   const existingQuestion = existingQuestionData as { id: string } | null;
@@ -132,7 +132,7 @@ export async function seedTodaysBotQuestion() {
   if (existingQuestionError) throw new Error(existingQuestionError.message);
   if (existingQuestion) return existingQuestion.id;
 
-  // The bot's question pool, written to follow the "How to Write a Great Twiddl Question" guide:
+  // twiddloo's question pool, written to follow the "How to Write a Great Twiddl Question" guide:
   // clue-led rather than fact-recall. Every fact here has been checked against the subject's own
   // reference article. Clue-style questions are free text (answered via the fuzzy grader with the
   // aliases after the commas); a few stay multiple choice for variety.
@@ -261,7 +261,7 @@ export async function seedTodaysBotQuestion() {
   const { data: askedQuestionsData, error: askedQuestionsError } = await supabaseAdmin
     .from('questions')
     .select('text, created_at')
-    .eq('author_id', TWIDDL_BOT_ID);
+    .eq('author_id', TWIDDLOO_ID);
   const askedQuestions = (askedQuestionsData as { text: string; created_at: string }[] | null) ?? [];
 
   if (askedQuestionsError) throw new Error(askedQuestionsError.message);
@@ -278,12 +278,12 @@ export async function seedTodaysBotQuestion() {
     .slice(0, 20)
     .map((item) => item.text);
 
-  // Preferred path: ask Groq for a fresh question. generateBotQuestion never throws and logs its
+  // Preferred path: ask Groq for a fresh question. generateTwiddlooQuestion never throws and logs its
   // own reason, so a Groq outage, rate limit or invalid result simply falls through to the
   // static list below and the cron still posts a question.
-  const generatedQuestion = await generateBotQuestion({ avoidQuestionTexts: recentlyAsked });
+  const generatedQuestion = await generateTwiddlooQuestion({ avoidQuestionTexts: recentlyAsked });
   if (generatedQuestion) {
-    return insertBotQuestion(generatedQuestion);
+    return insertTwiddlooQuestion(generatedQuestion);
   }
 
   // Fallback path: never ask the same question twice. If the static pool is ever exhausted, use
@@ -292,16 +292,16 @@ export async function seedTodaysBotQuestion() {
     ? neverAsked[0]
     : questionPool.slice().sort((left, right) => earliestAsk(left.text) - earliestAsk(right.text))[0];
 
-  console.log(`[twiddlBot] static fallback question: ${question.text}`);
-  return insertBotQuestion(question);
+  console.log(`[twiddloo] static fallback question: ${question.text}`);
+  return insertTwiddlooQuestion(question);
 }
 
-/** Persists a bot question in the shape Twiddl's question model expects. */
-async function insertBotQuestion(question: PoolQuestion) {
+/** Persists a twiddloo question in the shape Twiddl's question model expects. */
+async function insertTwiddlooQuestion(question: PoolQuestion) {
   const isMultipleChoice = question.questionType === 'multiple_choice';
 
   const { data: insertedQuestion, error: insertError } = await (supabaseAdmin.from('questions') as any).insert({
-    author_id: TWIDDL_BOT_ID,
+    author_id: TWIDDLOO_ID,
     text: question.text,
     choices: isMultipleChoice ? question.choices : [],
     correct_answer_index: isMultipleChoice ? question.correctAnswerIndex : -1,
@@ -310,6 +310,6 @@ async function insertBotQuestion(question: PoolQuestion) {
     is_public: true,
   }).select('id').single();
 
-  if (insertError || !insertedQuestion) throw new Error(insertError?.message ?? 'Unable to create twiddlBot question.');
+  if (insertError || !insertedQuestion) throw new Error(insertError?.message ?? 'Unable to create twiddloo question.');
   return insertedQuestion.id as string;
 }

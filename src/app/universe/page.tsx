@@ -1,11 +1,15 @@
 import Link from 'next/link';
 import { createServerSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requireAskedToday } from '@/lib/daily-question-gate';
 import ProfileButton from '@/components/profile-button';
 import UsernameJump from '@/components/username-jump';
 import type { Database } from '@/lib/database.types';
 
 export default async function UniversePage() {
+  // Off limits until today's question has been asked.
+  await requireAskedToday();
+
   const supabase = await createServerSupabase();
   const { data: publicUsersData } = await supabaseAdmin
     .from('profiles')

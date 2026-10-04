@@ -2,8 +2,12 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { formatRelativeDate } from '@/lib/utils';
 import QuestionAnswerForm from '@/components/QuestionAnswerForm';
+import DeleteQuestionButton from '@/components/DeleteQuestionButton';
 import { createServerSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requireAskedToday } from '@/lib/daily-question-gate';
+import { EMPTY_REPORT_SUMMARY, REPORT_REASON_LABELS, describeReportCount } from '@/lib/question-reports';
+import { loadQuestionReportSummary } from '@/lib/question-reports-server';
 import type { Database } from '@/lib/database.types';
 
 type Props = {
@@ -13,6 +17,9 @@ type Props = {
 };
 
 export default async function QuestionPage({ params }: Props) {
+  // Off limits until today's question has been asked. Signed-out visitors fall through unchanged.
+  await requireAskedToday();
+
   const supabase = await createServerSupabase();
   const { id } = await params;
   const { data: { session } } = await supabase.auth.getSession();
@@ -73,6 +80,11 @@ export default async function QuestionPage({ params }: Props) {
     ? (question.correct_answer ?? 'Not set')
     : (correctChoice ? `${String.fromCharCode(65 + question.correct_answer_index)}. ${correctChoice}` : 'Not set');
 
+  // Quality reports are private to the author, so they are only read when the author is looking.
+  const reportSummary = currentUserId === question.author_id
+    ? await loadQuestionReportSummary(question.id)
+    : EMPTY_REPORT_SUMMARY;
+
   return (
     <div className="mx-auto max-w-4xl space-y-6 pt-6">
       <section className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-[#151519] p-6 shadow-2xl shadow-violet-950/10 md:p-10">
@@ -127,8 +139,48 @@ export default async function QuestionPage({ params }: Props) {
             })}
           </div>
         )}
+        {/* The author can take their own question down, but not while it is still today's. */}
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.07] pt-4">
+          <p className="text-xs text-zinc-500">Deleting removes this question along with every answer and report attached to it.</p>
+          <DeleteQuestionButton questionId={question.id} redirectTo={`/profile/${author?.username ?? ''}`} />
+        </div>
       </section>
       )}
+
+      {/* Private to the author, and rendered only when someone has actually flagged something. */}
+      {currentUserId === question.author_id && reportSummary.total > 0 ? (
+        <section className="card p-5 md:p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-zinc-100">Question quality</h2>
+            <span className="text-xs uppercase tracking-[0.1em] text-zinc-500">Only you can see this</span>
+          </div>
+          <p className="mt-3 text-sm font-semibold text-amber-200">{describeReportCount(reportSummary.total)}</p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Only someone who answered incorrectly can flag a question, and it is a hunch rather than a verdict,
+            so treat it as a nudge to double-check your answer.
+          </p>
+          {reportSummary.named.length > 0 ? (
+            <ul className="mt-4 space-y-3">
+              {reportSummary.named.map((reporter) => (
+                <li key={reporter.reporterId} className="flex flex-col gap-2 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="font-semibold text-zinc-200">{reporter.displayName ?? reporter.username}</p>
+                    <p className="text-xs text-zinc-500">@{reporter.username}</p>
+                  </div>
+                  <span className="badge bg-amber-500/10 text-amber-200">{REPORT_REASON_LABELS[reporter.reason]}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {reportSummary.anonymousCount > 0 ? (
+            <p className="mt-3 text-xs text-zinc-500">
+              {reportSummary.anonymousCount === 1
+                ? '1 report was sent anonymously.'
+                : `${reportSummary.anonymousCount} reports were sent anonymously.`}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="card p-5 md:p-6">
         <p className="eyebrow">Your answer</p>
@@ -137,7 +189,7 @@ export default async function QuestionPage({ params }: Props) {
           {question.question_type === 'free_text' ? 'Type your answer below and submit to see whether it is correct.' : 'Choose one answer below and submit to see whether it is correct.'}
         </p>
         <div className="mt-6">
-          <QuestionAnswerForm question={question} authorId={question.author_id} />
+          <QuestionAnswerForm question={question} authorId={question.author_id} authorUsername={author?.username} />
         </div>
       </section>
     </div>

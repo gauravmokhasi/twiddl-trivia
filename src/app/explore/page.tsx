@@ -1,11 +1,15 @@
 import Link from 'next/link';
 import { createServerSupabase } from '@/lib/supabase-server';
 import { unansweredSessionQuestions } from '@/lib/session-questions';
+import { requireAskedToday } from '@/lib/daily-question-gate';
 import TriviaSession from '@/components/TriviaSession';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default async function ExplorePage() {
+  // Off limits until today's question has been asked. Signed-out visitors fall through unchanged.
+  await requireAskedToday();
+
   const supabase = await createServerSupabase();
   const { data: { session } } = await supabase.auth.getSession();
 

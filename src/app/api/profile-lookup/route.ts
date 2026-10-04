@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ found: false });
   }
 
-  // Both forms so a stored mixed-case handle (such as twiddlBot) still resolves.
+  // Both forms so a stored mixed-case handle (such as twiddloo) still resolves.
   const candidates = Array.from(new Set([query.toLowerCase(), query]));
 
   const { data, error } = await supabaseAdmin

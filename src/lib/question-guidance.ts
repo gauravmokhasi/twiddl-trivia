@@ -4,8 +4,8 @@
  * Edit this file and all four places follow:
  *   1. the guide page at /how-to-write-a-question
  *   2. the compact "What makes a good question" panel above the composer
- *   3. twiddlBot's question generator prompt
- *   4. the AI assist reviewer prompt
+ *   3. twiddloo's question generator prompt
+ *   4. the Twiddl Assist reviewer prompt
  */
 
 export type GuidancePrinciple = {
@@ -56,8 +56,8 @@ export const GUIDANCE_PRINCIPLES: GuidancePrinciple[] = [
 ];
 
 /**
- * The rules that sit underneath the principles. Used verbatim in both model prompts, so the bot
- * writes questions by the same standard the AI assist reviewer applies.
+ * The rules that sit underneath the principles. Used verbatim in both model prompts, so twiddloo
+ * writes questions by the same standard the Twiddl Assist reviewer applies.
  */
 export const GUIDANCE_RULES = [
   'Use at most two clues, and prefer two that work together over one plus padding. Every extra clue is another chance to be inaccurate, and it makes the question feel contrived.',

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createRouteSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { ensureDefaultRelationshipsForUser } from '@/lib/twiddl-bot';
+import { ensureDefaultRelationshipsForUser } from '@/lib/twiddloo';
+import { isIdentityConflictError } from '@/lib/profile-identity';
 
 export async function POST() {
   const supabase = await createRouteSupabase();
@@ -29,10 +30,16 @@ export async function POST() {
     return NextResponse.json({ error: existingProfileError.message }, { status: 500 });
   }
 
+  // Handles are always stored lowercase, so the profile page and lookups never depend on the case a
+  // user typed. A derived name that is too short is left alone for /profile to prompt about.
+  const derivedUsername = (user.user_metadata?.username || email.split('@')[0])
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_');
+
   const username =
     existingProfile?.username && !existingProfile.username.startsWith('user_')
       ? existingProfile.username
-      : (user.user_metadata?.username ?? email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]+/g, '_')) || `user_${user.id}`;
+      : (derivedUsername || `user_${user.id}`);
 
   const display_name = existingProfile?.display_name ?? user.user_metadata?.name ?? email.split('@')[0] ?? user.id;
   const is_public = existingProfile?.is_public ?? true;
@@ -46,20 +53,21 @@ export async function POST() {
   }, { onConflict: 'id' });
 
   if (error) {
-    // A Google sign-in derives its username from the email local part, which can collide with an
-    // existing profile (for example two "gaurav" accounts). Retry once with a name derived from the
-    // auth user id, which is unique and marks the profile as still needing a username.
-    const isUsernameCollision = /duplicate key|unique constraint/i.test(error.message) && /username/i.test(error.message);
-
-    if (!isUsernameCollision) {
+    // Sign-in derives a handle and a public name from the email local part and auth metadata, and
+    // either can already belong to someone else (two "gaurav" accounts, or a new user whose
+    // metadata name matches an existing profile's public name). Retry once with values built from
+    // the auth user id, which are unique by construction; the "user_" prefix also marks the profile
+    // as still needing a username, which is what sends the user to /profile to choose one.
+    if (!isIdentityConflictError(error)) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    const placeholder = `user_${user.id}`;
     const { error: retryError } = await (supabaseAdmin.from('profiles') as any).upsert({
       id: user.id,
       email,
-      username: `user_${user.id}`,
-      display_name,
+      username: placeholder,
+      display_name: placeholder,
       is_public,
     }, { onConflict: 'id' });
 
@@ -71,7 +79,7 @@ export async function POST() {
   try {
     await ensureDefaultRelationshipsForUser(user.id);
   } catch (relationshipError) {
-    return NextResponse.json({ error: relationshipError instanceof Error ? relationshipError.message : 'Unable to initialize bot relationships.' }, { status: 500 });
+    return NextResponse.json({ error: relationshipError instanceof Error ? relationshipError.message : 'Unable to initialize twiddloo relationships.' }, { status: 500 });
   }
 
   return NextResponse.json({ success: true });

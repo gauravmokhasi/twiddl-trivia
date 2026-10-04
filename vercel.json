@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/cron/twiddl-bot",
+      "path": "/api/cron/twiddloo",
       "schedule": "0 0 * * *"
     }
   ]

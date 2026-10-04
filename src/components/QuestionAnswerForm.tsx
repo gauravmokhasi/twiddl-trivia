@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Question } from '@/lib/database.types';
 import { describeAcceptedAnswer, differsFromAcceptedAnswer, primaryAcceptedAnswer } from '@/lib/answer-checker';
+import QuestionReportPrompt from '@/components/QuestionReportPrompt';
 
 export type AnswerOutcome = {
   isCorrect: boolean;
@@ -42,14 +43,18 @@ type Props = {
   onResult?: (outcome: AnswerOutcome) => void;
   /** Skip the "already answered" lookup when the caller already filtered answered questions. */
   skipExistingAnswerCheck?: boolean;
+  /** Optional, only used to word the quality-report prompt. */
+  authorUsername?: string | null;
 };
 
-export default function QuestionAnswerForm({ question, authorId, onResult, skipExistingAnswerCheck }: Props) {
+export default function QuestionAnswerForm({ question, authorId, onResult, skipExistingAnswerCheck, authorUsername }: Props) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [answerText, setAnswerText] = useState('');
+  // The quality-report option only appears once an incorrect answer is on record.
+  const [answerWasWrong, setAnswerWasWrong] = useState(false);
   const { session } = useAuth();
   const isAuthor = session?.user?.id === authorId;
 
@@ -70,6 +75,7 @@ export default function QuestionAnswerForm({ question, authorId, onResult, skipE
       setSelectedIndex(data.selectedChoiceIndex ?? null);
       setAnswerText(data.answerText ?? '');
       setIsLocked(true);
+      setAnswerWasWrong(!data.isCorrect);
       const note = originalAnswerNote(question, data.answerText ?? null, correctText);
       setStatusMessage(
         data.isCorrect
@@ -121,6 +127,7 @@ export default function QuestionAnswerForm({ question, authorId, onResult, skipE
     }
 
     setIsLocked(true);
+    setAnswerWasWrong(!data.isCorrect);
 
     if (onResult) {
       onResult({
@@ -184,6 +191,14 @@ export default function QuestionAnswerForm({ question, authorId, onResult, skipE
 
       {statusMessage ? (
         <div className="rounded-2xl border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-zinc-300">{statusMessage}</div>
+      ) : null}
+
+      {/*
+        Deliberately understated, and only offered after a wrong answer. Inside the
+        one-question-at-a-time flow the parent owns the result panel and renders its own prompt.
+      */}
+      {answerWasWrong && !onResult ? (
+        <QuestionReportPrompt questionId={question.id} authorUsername={authorUsername} />
       ) : null}
 
       <button type="submit" className="button button-primary" disabled={isSubmitting || isLocked}>

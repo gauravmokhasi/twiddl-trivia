@@ -4,8 +4,9 @@ Twiddl Trivia is a social quiz app built with Next.js, TypeScript, Tailwind CSS,
 
 ## Features
 
-- Email authentication through Supabase Auth (magic link) and Google sign-in, both using Supabase Auth
+- Email authentication through Supabase Auth (magic link)
 - Username setup with unique profile handles
+- Handles and public names are unique across the app, compared without regard to case, so no two users can look alike
 - Public/private profiles
 - Universe directory for public profiles
 - Follow and unfollow creators
@@ -15,7 +16,9 @@ Twiddl Trivia is a social quiz app built with Next.js, TypeScript, Tailwind CSS,
 - One answer per user per question
 - Profile history, follower/following lists, all-time correct-answer counts, and current Q&A streaks
 - Private answer summaries visible only to the question author
-- `twiddlBot`, an automated public trivia profile that writes a daily question with Groq and answers questions best-effort (falling back to a static question list when Groq is unavailable)
+- Authors can delete questions they asked in the past, along with the answers and reports attached to them
+- Question quality reports: anyone who answered incorrectly can privately flag a question as wrong or ambiguous, and only the author ever sees the count and who reported it (or that it was anonymous)
+- `twiddloo`, an automated public trivia profile that writes a daily question with Groq and answers questions best-effort (falling back to a static question list when Groq is unavailable)
 
 ## Requirements
 
@@ -63,8 +66,8 @@ Never commit `.env.local` or any Supabase service-role key. The service-role key
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `CRON_SECRET`
-   - `GROQ_API_KEY` (server-only; twiddlBot uses it to generate its daily question and falls back to a static list if it is missing or Groq fails)
-4. Deploy the project. Vercel will use `vercel.json` to call `/api/cron/twiddl-bot` daily.
+   - `GROQ_API_KEY` (server-only; twiddloo uses it to generate its daily question and falls back to a static list if it is missing or Groq fails)
+4. Deploy the project. Vercel will use `vercel.json` to call `/api/cron/twiddloo` daily.
 5. In Supabase Auth URL Configuration, set the production Site URL to the Vercel URL and add that URL to the Redirect URLs. Keep the localhost URL too for local development.
 
    The app uses `@supabase/ssr` with Next.js proxy cookie refresh. Do not add the deprecated `@supabase/auth-helpers-*` packages back.

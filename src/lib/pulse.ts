@@ -6,8 +6,11 @@
  * Day boundaries use UTC via toISOString().slice(0, 10), matching currentQaStreak in lib/streak.ts.
  */
 
-export const PULSE_WINDOW_DAYS = 364; // 52 weeks, so the grid is a clean whole number of columns
+export const PULSE_WINDOW_DAYS = 35; // 5 weeks, so the grid is a clean whole number of columns
 export const PULSE_MAX_SCORE = 5;
+
+/** Row labels, indexed by getUTCDay() (0 = Sunday) so they line up with buildPulseWeeks. */
+export const PULSE_WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -130,6 +133,41 @@ export function buildPulseWeeks(days: PulseDay[]): PulseWeek[] {
 
   if (current.some(Boolean)) weeks.push(current);
   return weeks;
+}
+
+const MONTH_LABEL_FORMAT: Intl.DateTimeFormatOptions = { month: 'short', timeZone: 'UTC' };
+
+function monthLabel(date: string) {
+  return new Date(`${date}T00:00:00.000Z`).toLocaleDateString('en-US', MONTH_LABEL_FORMAT);
+}
+
+/**
+ * One label per week column: the month name on the column where that month begins, otherwise an
+ * empty string. Keeps headings from repeating down the whole grid, and keeps each slot the same
+ * width as the day cells below it.
+ *
+ * A column is labelled when it contains the first of a month, not merely when its own first day
+ * starts a new month. Without that, a month that begins mid-week would never get a heading, which is
+ * common in a one-month window.
+ */
+export function buildPulseMonthLabels(weeks: PulseWeek[]): string[] {
+  let previous = '';
+
+  return weeks.map((week, index) => {
+    const days = week.filter((day): day is PulseDay => day !== null);
+    if (days.length === 0) return '';
+
+    const firstOfMonth = days.find((day) => day.date.endsWith('-01'));
+    // Only the very first column falls back to its own month, so the grid always opens with a label.
+    const anchor = firstOfMonth ?? (index === 0 ? days[0] : null);
+    if (!anchor) return '';
+
+    const month = monthLabel(anchor.date);
+    if (month === previous) return '';
+
+    previous = month;
+    return month;
+  });
 }
 
 const MONTH_DAY_FORMAT: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', timeZone: 'UTC' };

@@ -9,7 +9,7 @@ export type ChoicePayload = {
  * The composer allows empty rows, and those rows were previously filtered out while the selection
  * index was left untouched. Any blank row before the ticked one therefore shifted every later
  * option down, so the index referred to a different choice than the author picked. That made the
- * stored correct answer wrong and fed the AI assist review the wrong intended answer.
+ * stored correct answer wrong and fed the Twiddl Assist review the wrong intended answer.
  */
 export function buildChoicePayload(choices: string[], selectedIndex: number): ChoicePayload {
   const kept: string[] = [];

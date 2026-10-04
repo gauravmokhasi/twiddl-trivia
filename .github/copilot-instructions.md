@@ -2,6 +2,8 @@
 - Supabase provides email authentication and persistent profiles, follows, questions, and answers.
 - Server-side database operations that require elevated access use `src/lib/supabase-admin.ts`; never expose the service-role key to client code.
 - Profiles use unique usernames and can be public or private.
+- Usernames and public names share one namespace: no two profiles may claim the same handle or the same public name, compared without regard to case. The rule lives in the `profiles_identity_unique` trigger.
+- Authors can delete their own questions once the question is a day old, which keeps the one-question-per-24-hours rule honest. The `questions` table has no delete policy, so deletions go through the service-role client.
 - The feed contains questions from followed users created in the last 24 hours.
 - Users can answer each question only once and cannot answer their own questions.
 - Run `npm run build` after significant changes and keep documentation aligned with the current implementation.

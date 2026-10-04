@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 
 import {
   PULSE_MAX_SCORE,
+  PULSE_WEEKDAY_LABELS,
   PULSE_WINDOW_DAYS,
   answeredPoints,
   buildPulseDays,
+  buildPulseMonthLabels,
   buildPulseWeeks,
   describePulseDay,
   pulseAriaLabel,
@@ -103,16 +105,20 @@ test('11. day counts are computed independently for asking and answering', () =>
   assert.equal(day.score, 4);
 });
 
-test('12. the window covers the last year and excludes older activity', () => {
+test('12. the window covers the last month and excludes older activity', () => {
   const days = build({ asked: [iso(PULSE_WINDOW_DAYS + 30)] });
   assert.equal(days.length, PULSE_WINDOW_DAYS);
   assert.ok(days.every((day) => day.score === 0), 'activity older than the window must not appear');
   assert.equal(days[days.length - 1].date, TODAY.toISOString().slice(0, 10));
+
+  const spanDays = (Date.parse(`${days[days.length - 1].date}T00:00:00.000Z`) - Date.parse(`${days[0].date}T00:00:00.000Z`)) / DAY_MS;
+  assert.equal(spanDays, PULSE_WINDOW_DAYS - 1);
+  assert.ok(PULSE_WINDOW_DAYS <= 35, 'the default window is about a month, not a year');
 });
 
 test('13. the grid aligns each weekday to its own row', () => {
   const weeks = buildPulseWeeks(build({ asked: [iso(0)] }));
-  assert.ok(weeks.length > 50);
+  assert.ok(weeks.length >= 5 && weeks.length <= 6, 'a month spans five or six week columns');
   assert.ok(weeks.every((week) => week.length === 7));
 
   const todayWeekday = TODAY.getUTCDay();
@@ -140,4 +146,39 @@ test('15. labels describe the day without exposing point maths', () => {
   const idle = dayFor(build({}), 9);
   assert.deepEqual(describePulseDay(idle).rows, []);
   assert.match(pulseAriaLabel(idle), /No activity/);
+});
+
+test('16. weekday labels line up with the grid rows', () => {
+  assert.equal(PULSE_WEEKDAY_LABELS.length, 7);
+  // TODAY is a Wednesday, so the third row must be labelled Wed.
+  assert.equal(PULSE_WEEKDAY_LABELS[new Date(`${TODAY.toISOString().slice(0, 10)}T00:00:00.000Z`).getUTCDay()], 'Wed');
+
+  for (const week of buildPulseWeeks(build({}))) {
+    week.forEach((day, row) => {
+      if (day) assert.equal(new Date(`${day.date}T00:00:00.000Z`).getUTCDay(), row);
+    });
+  }
+});
+
+test('17. month headings label each month once, aligned to its column', () => {
+  const weeks = buildPulseWeeks(build({}));
+  const labels = buildPulseMonthLabels(weeks);
+
+  assert.equal(labels.length, weeks.length);
+  assert.deepEqual(labels.filter(Boolean), ['Apr', 'May']);
+  assert.equal(labels[0], 'Apr');
+  assert.ok(labels.every((label) => label === '' || /^[A-Z][a-z]{2}$/.test(label)));
+  assert.deepEqual(buildPulseMonthLabels([]), []);
+});
+
+test('18. a month that begins mid-week still gets a heading', () => {
+  // This window ends inside the first week of June, so the final column starts in May.
+  const weeks = buildPulseWeeks(buildPulseDays({
+    askedDates: [],
+    answeredDates: [],
+    receivedDates: [],
+    today: new Date('2026-06-02T12:00:00.000Z'),
+  }));
+
+  assert.deepEqual(buildPulseMonthLabels(weeks).filter(Boolean), ['May', 'Jun']);
 });

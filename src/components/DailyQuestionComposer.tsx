@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
-import type { AiAssistReview } from '@/lib/ai-assist';
+import type { AiAssistAccuracyConcern, AiAssistResult } from '@/lib/ai-assist';
 import { buildChoicePayload } from '@/lib/question-choices';
 import { GUIDANCE_PRINCIPLES } from '@/lib/question-guidance';
 
@@ -13,6 +13,7 @@ type Props = {
 };
 
 const AI_ASSIST_STORAGE_KEY = 'twiddl-ai-assist-enabled';
+const FACT_CHECK_STORAGE_KEY = 'twiddl-assist-fact-check-enabled';
 
 function getStoredAiAssistPreference() {
   if (typeof window === 'undefined') return true;
@@ -26,6 +27,33 @@ function getStoredAiAssistPreference() {
   }
 }
 
+/** Separate switch, defaulting on, so the accuracy hunch can be turned off on its own. */
+function getStoredFactCheckPreference() {
+  if (typeof window === 'undefined') return true;
+
+  try {
+    const storedValue = window.localStorage.getItem(FACT_CHECK_STORAGE_KEY);
+    if (storedValue === null) return true;
+    return storedValue === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function AssistToggle({ pressed, onToggle, label }: { pressed: boolean; onToggle: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      aria-label={`${label}: ${pressed ? 'on' : 'off'}`}
+      onClick={onToggle}
+      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition ${pressed ? 'border-violet-400/60 bg-violet-500/80' : 'border-white/15 bg-zinc-700'}`}
+    >
+      <span className={`inline-block h-5 w-5 rounded-full bg-white transition ${pressed ? 'translate-x-6' : 'translate-x-1'}`} />
+    </button>
+  );
+}
+
 export default function DailyQuestionComposer({ onAsked }: Props) {
   const { session } = useAuth();
   const [text, setText] = useState('');
@@ -36,9 +64,11 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [aiAssistEnabled, setAiAssistEnabled] = useState<boolean>(getStoredAiAssistPreference);
-  const [aiAssistReview, setAiAssistReview] = useState<AiAssistReview | null>(null);
-  // AI Assist is deliberately a single pass per question: once it has reviewed, later edits (including
-  // accepting a suggestion) are submitted as-is rather than reviewed again.
+  const [aiAssistReview, setAiAssistReview] = useState<AiAssistResult | null>(null);
+  const [factCheckEnabled, setFactCheckEnabled] = useState<boolean>(getStoredFactCheckPreference);
+  const [accuracyConcern, setAccuracyConcern] = useState<AiAssistAccuracyConcern | null>(null);
+  // Twiddl Assist is deliberately a single pass per question: once it has reviewed, later edits
+  // (including accepting a suggestion) are submitted as-is rather than reviewed again.
   const [hasRunAiAssist, setHasRunAiAssist] = useState(false);
 
   useEffect(() => {
@@ -46,21 +76,32 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
     window.localStorage.setItem(AI_ASSIST_STORAGE_KEY, String(aiAssistEnabled));
   }, [aiAssistEnabled]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(FACT_CHECK_STORAGE_KEY, String(factCheckEnabled));
+  }, [factCheckEnabled]);
+
+  // Any edit to the draft invalidates both results, so they are always cleared together.
+  const clearAssistReview = () => {
+    clearAssistReview();
+    setAccuracyConcern(null);
+  };
+
   const handleChoiceChange = (index: number, value: string) => {
     setChoices((current) => current.map((choice, idx) => (idx === index ? value : choice)));
-    setAiAssistReview(null);
+    clearAssistReview();
   };
 
   const handleAddChoice = () => {
     setChoices((current) => [...current, '']);
-    setAiAssistReview(null);
+    clearAssistReview();
   };
 
   const handleRemoveChoice = (index: number) => {
     if (choices.length <= 2) return;
     setChoices((current) => current.filter((_, idx) => idx !== index));
     setCorrectAnswerIndex((current) => (current === index ? 0 : current > index ? current - 1 : current));
-    setAiAssistReview(null);
+    clearAssistReview();
   };
 
   const submitQuestion = async (questionText: string) => {
@@ -114,8 +155,8 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
     setChoices(['', '']);
     setCorrectAnswerIndex(0);
     setCorrectAnswer('');
-    setAiAssistReview(null);
-    // A new question is starting, so the next one gets its own single AI Assist pass.
+    clearAssistReview();
+    // A new question is starting, so the next one gets its own single Twiddl Assist pass.
     setHasRunAiAssist(false);
 
     if (onAsked) {
@@ -156,9 +197,9 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
       return;
     }
 
-    // AI Assist gets exactly one pass per question. Once it has run, the text is submitted as it
+    // Twiddl Assist gets exactly one pass per question. Once it has run, the text is submitted as it
     // stands (an accepted suggestion or a manual edit is never reviewed a second time).
-    if (aiAssistEnabled && !hasRunAiAssist) {
+    if ((aiAssistEnabled || factCheckEnabled) && !hasRunAiAssist) {
       setHasRunAiAssist(true);
 
       try {
@@ -171,21 +212,31 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
             choices: questionType === 'multiple_choice' ? choicePayload.choices : [],
             correctAnswerIndex: questionType === 'multiple_choice' ? choicePayload.correctAnswerIndex : -1,
             correctAnswer: questionType === 'free_text' ? correctAnswer.trim() : null,
+            // Each check is switchable, and neither is paid for when it is switched off.
+            coaching: aiAssistEnabled,
+            factCheck: factCheckEnabled,
           }),
         });
 
         if (response.ok) {
-          const review = (await response.json()) as AiAssistReview;
+          const review = (await response.json()) as AiAssistResult;
           setAiAssistReview(review);
+          setAccuracyConcern(review.accuracy ?? null);
 
+          // Hold the post while the author decides. Both cards offer a way to override, so nothing
+          // here can stop a question being asked.
           if (review.assessment === 'NEEDS_REFRAME' && review.suggestedQuestion) {
             return;
           }
+
+          if (review.accuracy) {
+            return;
+          }
         } else {
-          setAiAssistReview(null);
+          clearAssistReview();
         }
       } catch {
-        setAiAssistReview(null);
+        clearAssistReview();
       }
     }
 
@@ -195,12 +246,24 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
   const handleUseSuggestion = () => {
     if (!aiAssistReview || aiAssistReview.assessment !== 'NEEDS_REFRAME' || !aiAssistReview.suggestedQuestion) return;
     setText(aiAssistReview.suggestedQuestion);
-    setAiAssistReview(null);
+    clearAssistReview();
     setMessage('');
   };
 
   const handleKeepMine = async () => {
-    setAiAssistReview(null);
+    clearAssistReview();
+    await submitQuestion(text);
+  };
+
+  /** The author accepted the accuracy hunch and wants to change the question themselves. */
+  const handleEditAfterConcern = () => {
+    setAccuracyConcern(null);
+    setMessage('');
+  };
+
+  /** The author overrode the hunch and posts the question exactly as written. */
+  const handlePostAnyway = async () => {
+    setAccuracyConcern(null);
     await submitQuestion(text);
   };
 
@@ -231,24 +294,38 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">
-            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-              <div>
-                <p className="text-sm font-medium text-zinc-200">AI Assist</p>
-                <p className="text-xs text-zinc-400">Optional guidance to make the question more fun to solve.</p>
-                {aiAssistEnabled ? (
-                  <p className="mt-1 text-xs text-amber-300/90">
-                    AI Assist can occasionally get things wrong. Please check the question and the correct answer yourself before posting.
-                  </p>
-                ) : null}
+            <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+              <p className="text-sm font-medium text-zinc-200">Twiddl Assist</p>
+
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-zinc-300">Question coaching</p>
+                  <p className="text-xs text-zinc-400">Optional guidance to make the question more fun to solve.</p>
+                </div>
+                <AssistToggle
+                  pressed={aiAssistEnabled}
+                  onToggle={() => setAiAssistEnabled((value) => !value)}
+                  label="Question coaching"
+                />
               </div>
-              <button
-                type="button"
-                aria-pressed={aiAssistEnabled}
-                onClick={() => setAiAssistEnabled((value) => !value)}
-                className={`relative inline-flex h-7 w-12 items-center rounded-full border transition ${aiAssistEnabled ? 'border-violet-400/60 bg-violet-500/80' : 'border-white/15 bg-zinc-700'}`}
-              >
-                <span className={`inline-block h-5 w-5 rounded-full bg-white transition ${aiAssistEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
+
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-zinc-300">Accuracy check</p>
+                  <p className="text-xs text-zinc-400">A quick hunch on whether the question or the answer looks wrong or ambiguous. It stays quiet unless it is confident, so most questions get no comment at all.</p>
+                </div>
+                <AssistToggle
+                  pressed={factCheckEnabled}
+                  onToggle={() => setFactCheckEnabled((value) => !value)}
+                  label="Accuracy check"
+                />
+              </div>
+
+              {aiAssistEnabled || factCheckEnabled ? (
+                <p className="text-xs text-amber-300/90">
+                  Twiddl Assist can occasionally get things wrong. Please check the question and the correct answer yourself before posting.
+                </p>
+              ) : null}
             </div>
 
             <fieldset className="space-y-3">
@@ -269,7 +346,7 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                 value={text}
                 onChange={(event) => {
                   setText(event.target.value);
-                  setAiAssistReview(null);
+                  clearAssistReview();
                 }}
                 rows={4}
                 className="mt-2 w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 focus:outline-none"
@@ -294,7 +371,7 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                       checked={correctAnswerIndex === index}
                       onChange={() => {
                         setCorrectAnswerIndex(index);
-                        setAiAssistReview(null);
+                        clearAssistReview();
                       }}
                       className="h-4 w-4"
                     />
@@ -324,7 +401,7 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                   value={correctAnswer}
                   onChange={(event) => {
                     setCorrectAnswer(event.target.value);
-                    setAiAssistReview(null);
+                    clearAssistReview();
                   }}
                   className="mt-2 w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 focus:outline-none"
                   placeholder="Paris, City of Light"
@@ -340,7 +417,7 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                   {aiAssistReview.suggestedQuestion}
                 </p>
                 <p className="mt-2 text-xs text-violet-200/80">
-                  AI suggestions can occasionally be inaccurate. Check that the rewrite still matches your intended answer before posting.
+                  Twiddl Assist suggestions can occasionally be inaccurate. Check that the rewrite still matches your intended answer before posting.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-3">
                   <button type="button" className="button button-primary" onClick={handleUseSuggestion}>
@@ -348,6 +425,28 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                   </button>
                   <button type="button" className="button button-secondary" onClick={handleKeepMine}>
                     Keep mine
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {/*
+              The accuracy hunch. Soft on purpose: it offers a doubt, not a correction, and both
+              buttons let the author move on - nothing here blocks posting.
+            */}
+            {accuracyConcern ? (
+              <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+                <p className="font-medium">Quick sanity check</p>
+                <p className="mt-2">{accuracyConcern.message}</p>
+                <p className="mt-2 text-xs text-amber-200/80">
+                  This is only a hunch and it can be wrong. You decide what to post.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-3">
+                  <button type="button" className="button button-secondary" onClick={handleEditAfterConcern}>
+                    Let me edit
+                  </button>
+                  <button type="button" className="button button-primary" onClick={handlePostAnyway}>
+                    Post anyway
                   </button>
                 </div>
               </div>

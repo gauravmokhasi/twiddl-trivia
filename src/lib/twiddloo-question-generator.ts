@@ -4,12 +4,12 @@ import { requestGroqAnswer } from '@/lib/groq-answer';
 import { QUESTION_OUTPUT_INSTRUCTIONS, buildGuidanceBrief } from '@/lib/question-guidance';
 
 /**
- * Generates twiddlBot's daily question with Groq Structured Outputs. Returns null (never throws)
+ * Generates twiddloo's daily question with Groq Structured Outputs. Returns null (never throws)
  * when Groq is unavailable, rate limited, misconfigured or produces something invalid, so the
  * caller can fall back to the static question list.
  */
 
-export type GeneratedBotQuestion = {
+export type GeneratedTwiddlooQuestion = {
   text: string;
   questionType: 'free_text' | 'multiple_choice';
   choices: string[];
@@ -18,7 +18,7 @@ export type GeneratedBotQuestion = {
 };
 
 export type ValidationResult =
-  | { ok: true; question: GeneratedBotQuestion }
+  | { ok: true; question: GeneratedTwiddlooQuestion }
   | { ok: false; reason: string };
 
 const MIN_QUESTION_LENGTH = 24;
@@ -47,7 +47,7 @@ const FORBIDDEN_TEXT_PATTERN = /\bas an ai\b|\blanguage model\b|\bjson\b|\bschem
 /**
  * The output shape is described in English (see QUESTION_OUTPUT_INSTRUCTIONS) and requested with
  * response_format json_object: this model is unreliable at strict json_schema generation, which was
- * causing json_validate_failed errors and pushing the bot onto the static fallback. validateGeneratedQuestion
+ * causing json_validate_failed errors and pushing twiddloo onto the static fallback. validateGeneratedQuestion
  * below is what actually enforces the shape.
  */
 
@@ -114,7 +114,7 @@ export function validateGeneratedQuestion(raw: unknown, avoidQuestionTexts: stri
 
   const normalizedText = normalizeForComparison(text);
   if (avoidQuestionTexts.some((asked) => normalizeForComparison(asked) === normalizedText)) {
-    return { ok: false, reason: 'question repeated one the bot already asked' };
+    return { ok: false, reason: 'question repeated one twiddloo already asked' };
   }
 
   const rawAccepted = Array.isArray(record.acceptedAnswers) ? record.acceptedAnswers : [];
@@ -177,7 +177,7 @@ type SelfCheckResult = { ok: true; answer: string } | { ok: false; reason: strin
  * and the two must agree. This catches the common failure mode where a clue points somewhere else (or
  * nowhere). requestGroqAnswer throws on API errors so the caller's retry classification applies.
  */
-async function selfCheckQuestion(question: GeneratedBotQuestion): Promise<SelfCheckResult> {
+async function selfCheckQuestion(question: GeneratedTwiddlooQuestion): Promise<SelfCheckResult> {
   const expectedAnswer = question.correctAnswer ?? question.choices[question.correctAnswerIndex] ?? '';
   if (!expectedAnswer) return { ok: false, reason: 'there was no answer to check' };
 
@@ -196,12 +196,12 @@ async function selfCheckQuestion(question: GeneratedBotQuestion): Promise<SelfCh
  * Never throws: every failure path logs a short reason and returns null so the caller can post a
  * question from the static list instead.
  */
-export async function generateBotQuestion(options: { avoidQuestionTexts?: string[] } = {}): Promise<GeneratedBotQuestion | null> {
+export async function generateTwiddlooQuestion(options: { avoidQuestionTexts?: string[] } = {}): Promise<GeneratedTwiddlooQuestion | null> {
   const client = getGroqClient();
   const avoid = (options.avoidQuestionTexts ?? []).slice(0, 20);
 
   if (!client) {
-    console.warn('[twiddlBot] Groq not configured (GROQ_API_KEY is missing) - using static fallback');
+    console.warn('[twiddloo] Groq not configured (GROQ_API_KEY is missing) - using static fallback');
     return null;
   }
 
@@ -257,7 +257,7 @@ ${avoid.map((text) => `- ${text}`).join('\n')}`
             const selfCheck = await selfCheckQuestion(validated.question);
 
             if (selfCheck.ok) {
-              console.log(`[twiddlBot] Groq-generated question (self-check answered "${selfCheck.answer}"): ${validated.question.text}`);
+              console.log(`[twiddloo] Groq-generated question (self-check answered "${selfCheck.answer}"): ${validated.question.text}`);
               return validated.question;
             }
 
@@ -268,7 +268,7 @@ ${avoid.map((text) => `- ${text}`).join('\n')}`
     } catch (error) {
       const failure = describeGroqFailure(error);
       const retrying = attempt < MAX_ATTEMPTS && failure.retryable;
-      console.warn(`[twiddlBot] Groq ${failure.kind} error: ${failure.message} - ${retrying ? 'retrying once' : 'using static fallback'}`);
+      console.warn(`[twiddloo] Groq ${failure.kind} error: ${failure.message} - ${retrying ? 'retrying once' : 'using static fallback'}`);
 
       if (!retrying) return null;
 
@@ -277,11 +277,11 @@ ${avoid.map((text) => `- ${text}`).join('\n')}`
     }
 
     if (attempt < MAX_ATTEMPTS) {
-      console.warn(`[twiddlBot] Groq attempt ${attempt} was unusable (${lastReason})${lastQuestion ? `: ${lastQuestion.slice(0, 160)}` : ''} - retrying once`);
+      console.warn(`[twiddloo] Groq attempt ${attempt} was unusable (${lastReason})${lastQuestion ? `: ${lastQuestion.slice(0, 160)}` : ''} - retrying once`);
       await sleep(RETRY_DELAY_MS);
     }
   }
 
-  console.warn(`[twiddlBot] Groq generation failed after ${MAX_ATTEMPTS} attempts (${lastReason})${lastQuestion ? `: ${lastQuestion.slice(0, 160)}` : ''} - using static fallback`);
+  console.warn(`[twiddloo] Groq generation failed after ${MAX_ATTEMPTS} attempts (${lastReason})${lastQuestion ? `: ${lastQuestion.slice(0, 160)}` : ''} - using static fallback`);
   return null;
 }

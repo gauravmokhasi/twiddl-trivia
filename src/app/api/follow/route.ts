@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createRouteSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { TWIDDL_BOT_ID } from '@/lib/twiddl-bot';
+import { TWIDDLOO_ID } from '@/lib/twiddloo';
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  if (followeeId === TWIDDL_BOT_ID) {
+  if (followeeId === TWIDDLOO_ID) {
     await (supabaseAdmin.from('bot_follow_opt_outs') as any)
       .delete()
       .eq('user_id', session.user.id);
@@ -61,7 +61,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  if (followeeId === TWIDDL_BOT_ID) {
+  if (followeeId === TWIDDLOO_ID) {
     const { error: optOutError } = await (supabaseAdmin.from('bot_follow_opt_outs') as any).upsert({
       user_id: session.user.id,
     }, { onConflict: 'user_id' });

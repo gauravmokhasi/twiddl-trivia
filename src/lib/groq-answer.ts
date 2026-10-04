@@ -2,7 +2,7 @@ import { GROQ_MODEL, describeGroqFailure, getGroqClient } from '@/lib/groq-clien
 
 /**
  * Blind trivia answering with Groq. The question text is sent on its own and never the answer key,
- * so the reply is a genuine attempt. Used by twiddlBot when answering other people's questions, and
+ * so the reply is a genuine attempt. Used by twiddloo when answering other people's questions, and
  * by the question generator to sanity-check its own output.
  */
 
@@ -64,11 +64,11 @@ export async function guessAnswerWithGroq(questionText: string): Promise<string 
     const answer = await requestGroqAnswer(questionText);
     if (answer) return answer;
 
-    console.warn('[twiddlBot] Groq returned no usable answer - falling back to a simpler guess');
+    console.warn('[twiddloo] Groq returned no usable answer - falling back to a simpler guess');
     return null;
   } catch (error) {
     const failure = describeGroqFailure(error);
-    console.warn(`[twiddlBot] Groq answer guess failed (${failure.kind}): ${failure.message} - falling back to a simpler guess`);
+    console.warn(`[twiddloo] Groq answer guess failed (${failure.kind}): ${failure.message} - falling back to a simpler guess`);
     return null;
   }
 }

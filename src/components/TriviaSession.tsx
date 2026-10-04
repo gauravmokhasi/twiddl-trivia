@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import QuestionAnswerForm, { type AnswerOutcome } from '@/components/QuestionAnswerForm';
+import QuestionReportPrompt from '@/components/QuestionReportPrompt';
 import { describeAcceptedAnswer, differsFromAcceptedAnswer, primaryAcceptedAnswer } from '@/lib/answer-checker';
 import { formatRelativeDate } from '@/lib/utils';
 import type { SessionQuestion } from '@/lib/session-questions';
@@ -156,6 +157,12 @@ export default function TriviaSession({ questions, headerLabel = "Today's twiddl
           <button type="button" className="button button-primary mt-5" onClick={() => advance(false)}>
             Continue
           </button>
+          {/* Only after a wrong answer, and only ever visible to the question's author. */}
+          {!outcome.isCorrect ? (
+            <div className="mt-4 border-t border-rose-500/20 pt-3">
+              <QuestionReportPrompt questionId={currentQuestion.id} authorUsername={currentQuestion.author_username} />
+            </div>
+          ) : null}
         </div>
       ) : (
         <>
