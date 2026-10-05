@@ -6,7 +6,7 @@ import {
   coerceAiAssistReview,
   combineAiAssistResult,
   resolveIntendedAnswer,
-} from './ai-assist';
+} from './twiddl-assist';
 
 test('GOOD questions strip all suggestion payloads', () => {
   const result = coerceAiAssistReview({
@@ -102,14 +102,16 @@ test('Accuracy messages are length capped', () => {
   assert.equal(concern.message.length, 320);
 });
 
-test('A pending rewrite suppresses stale accuracy advice', () => {
+test('A pending rewrite never hides an accuracy doubt', () => {
+  // The rewrite is optional style advice; the accuracy concern is about the facts, so the two are
+  // reported side by side rather than one silencing the other.
   const concern = { kind: 'AMBIGUOUS' as const, message: 'Two answers fit.' };
 
   const reframe = combineAiAssistResult(
     { assessment: 'NEEDS_REFRAME', suggestedQuestion: 'A better version?', shortReason: 'Rote recall.' },
     concern,
   );
-  assert.equal(reframe.accuracy, null);
+  assert.deepEqual(reframe.accuracy, concern);
   assert.equal(reframe.suggestedQuestion, 'A better version?');
 
   const okay = combineAiAssistResult({ assessment: 'OKAY', suggestedQuestion: null, shortReason: null }, concern);

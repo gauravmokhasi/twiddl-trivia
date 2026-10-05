@@ -2,8 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
-import type { AiAssistAccuracyConcern, AiAssistResult } from '@/lib/ai-assist';
+import type { AiAssistAccuracyConcern, AiAssistResult } from '@/lib/twiddl-assist';
+import {
+  COACHING_STORAGE_KEY,
+  getStoredCoachingPreference,
+  getStoredFactCheckPreference,
+  setStoredFactCheckPreference,
+} from '@/lib/twiddl-assist-preferences';
 import { buildChoicePayload } from '@/lib/question-choices';
 import { GUIDANCE_PRINCIPLES } from '@/lib/question-guidance';
 
@@ -12,29 +19,14 @@ type Props = {
   onAsked?: () => void;
 };
 
-const AI_ASSIST_STORAGE_KEY = 'twiddl-ai-assist-enabled';
-const FACT_CHECK_STORAGE_KEY = 'twiddl-assist-fact-check-enabled';
+const GUIDANCE_STORAGE_KEY = 'twiddl-guidance-visible';
 
-function getStoredAiAssistPreference() {
+function getStoredGuidancePreference() {
   if (typeof window === 'undefined') return true;
 
   try {
-    const storedValue = window.localStorage.getItem(AI_ASSIST_STORAGE_KEY);
-    if (storedValue === null) return true;
-    return storedValue === 'true';
-  } catch {
-    return true;
-  }
-}
-
-/** Separate switch, defaulting on, so the accuracy hunch can be turned off on its own. */
-function getStoredFactCheckPreference() {
-  if (typeof window === 'undefined') return true;
-
-  try {
-    const storedValue = window.localStorage.getItem(FACT_CHECK_STORAGE_KEY);
-    if (storedValue === null) return true;
-    return storedValue === 'true';
+    // Absence means visible: the panel only disappears once the author hides it.
+    return window.localStorage.getItem(GUIDANCE_STORAGE_KEY) !== 'hidden';
   } catch {
     return true;
   }
@@ -56,6 +48,7 @@ function AssistToggle({ pressed, onToggle, label }: { pressed: boolean; onToggle
 
 export default function DailyQuestionComposer({ onAsked }: Props) {
   const { session } = useAuth();
+  const router = useRouter();
   const [text, setText] = useState('');
   const [questionType, setQuestionType] = useState<'multiple_choice' | 'free_text'>('multiple_choice');
   const [choices, setChoices] = useState(['', '']);
@@ -63,28 +56,46 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
   const [correctAnswer, setCorrectAnswer] = useState('');
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [aiAssistEnabled, setAiAssistEnabled] = useState<boolean>(getStoredAiAssistPreference);
+  const [guidanceVisible, setGuidanceVisible] = useState<boolean>(getStoredGuidancePreference);
+  const [coachingEnabled, setCoachingEnabled] = useState<boolean>(getStoredCoachingPreference);
   const [aiAssistReview, setAiAssistReview] = useState<AiAssistResult | null>(null);
+  // No toggle on this screen by design: the check runs quietly unless it is
+  // confident, and is only ever switched off from an accuracy card or the
+  // profile page. Defaults on; the profile toggle writes the same key.
   const [factCheckEnabled, setFactCheckEnabled] = useState<boolean>(getStoredFactCheckPreference);
   const [accuracyConcern, setAccuracyConcern] = useState<AiAssistAccuracyConcern | null>(null);
+  const [accuracyDismissed, setAccuracyDismissed] = useState(false);
   // Twiddl Assist is deliberately a single pass per question: once it has reviewed, later edits
   // (including accepting a suggestion) are submitted as-is rather than reviewed again.
   const [hasRunAiAssist, setHasRunAiAssist] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(AI_ASSIST_STORAGE_KEY, String(aiAssistEnabled));
-  }, [aiAssistEnabled]);
+    try {
+      window.localStorage.setItem(COACHING_STORAGE_KEY, String(coachingEnabled));
+    } catch {
+      // Preference simply does not persist (e.g. private browsing).
+    }
+  }, [coachingEnabled]);
+
+  useEffect(() => {
+    setStoredFactCheckPreference(factCheckEnabled);
+  }, [factCheckEnabled]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(FACT_CHECK_STORAGE_KEY, String(factCheckEnabled));
-  }, [factCheckEnabled]);
+    try {
+      window.localStorage.setItem(GUIDANCE_STORAGE_KEY, guidanceVisible ? 'visible' : 'hidden');
+    } catch {
+      // Preference simply does not persist (e.g. private browsing).
+    }
+  }, [guidanceVisible]);
 
   // Any edit to the draft invalidates both results, so they are always cleared together.
   const clearAssistReview = () => {
-    clearAssistReview();
+    setAiAssistReview(null);
     setAccuracyConcern(null);
+    setAccuracyDismissed(false);
   };
 
   const handleChoiceChange = (index: number, value: string) => {
@@ -102,6 +113,21 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
     setChoices((current) => current.filter((_, idx) => idx !== index));
     setCorrectAnswerIndex((current) => (current === index ? 0 : current > index ? current - 1 : current));
     clearAssistReview();
+  };
+
+  /**
+   * Sends the author to the feed after a successful post. Preferred path is
+   * onAsked (the home flow flips straight into answering); otherwise the
+   * composer navigates itself so the author never sits on a form whose next
+   * submit can only be refused by the daily limit.
+   */
+  const moveToFeed = () => {
+    if (onAsked) {
+      onAsked();
+      return;
+    }
+    router.push('/');
+    router.refresh();
   };
 
   const submitQuestion = async (questionText: string) => {
@@ -129,42 +155,48 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
 
     setIsSaving(true);
 
-    const response = await fetch('/api/questions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: questionText.trim(),
-        questionType,
-        choices: questionType === 'multiple_choice' ? choicePayload.choices : [],
-        correctAnswerIndex: questionType === 'multiple_choice' ? choicePayload.correctAnswerIndex : -1,
-        correctAnswer: questionType === 'free_text' ? correctAnswer.trim() : null,
-        isPublic: true,
-      }),
-    });
+    try {
+      const response = await fetch('/api/questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: questionText.trim(),
+          questionType,
+          choices: questionType === 'multiple_choice' ? choicePayload.choices : [],
+          correctAnswerIndex: questionType === 'multiple_choice' ? choicePayload.correctAnswerIndex : -1,
+          correctAnswer: questionType === 'free_text' ? correctAnswer.trim() : null,
+          isPublic: true,
+        }),
+      });
 
-    const data = await response.json();
-    setIsSaving(false);
+      const data = await response.json().catch(() => null);
+      setIsSaving(false);
 
-    if (!response.ok) {
-      setMessage(data.error || 'Unable to create your question.');
-      return;
+      if (!response.ok) {
+        // The daily limit means the question is already saved: another submit
+        // could only ever be refused, so go to the feed instead of idling here.
+        if (data?.alreadyAsked) {
+          moveToFeed();
+          return;
+        }
+        setMessage(data?.error || 'Unable to create your question.');
+        return;
+      }
+
+      setText('');
+      setQuestionType('multiple_choice');
+      setChoices(['', '']);
+      setCorrectAnswerIndex(0);
+      setCorrectAnswer('');
+      clearAssistReview();
+      // A new question is starting, so the next one gets its own single Twiddl Assist pass.
+      setHasRunAiAssist(false);
+
+      moveToFeed();
+    } catch {
+      setIsSaving(false);
+      setMessage('Unable to create your question.');
     }
-
-    setText('');
-    setQuestionType('multiple_choice');
-    setChoices(['', '']);
-    setCorrectAnswerIndex(0);
-    setCorrectAnswer('');
-    clearAssistReview();
-    // A new question is starting, so the next one gets its own single Twiddl Assist pass.
-    setHasRunAiAssist(false);
-
-    if (onAsked) {
-      onAsked();
-      return;
-    }
-
-    setMessage('Question created successfully! Your followers will see it in the next 24-hour feed.');
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -199,11 +231,11 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
 
     // Twiddl Assist gets exactly one pass per question. Once it has run, the text is submitted as it
     // stands (an accepted suggestion or a manual edit is never reviewed a second time).
-    if ((aiAssistEnabled || factCheckEnabled) && !hasRunAiAssist) {
+    if ((coachingEnabled || factCheckEnabled) && !hasRunAiAssist) {
       setHasRunAiAssist(true);
 
       try {
-        const response = await fetch('/api/ai-assist', {
+        const response = await fetch('/api/twiddl-assist', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -213,7 +245,7 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
             correctAnswerIndex: questionType === 'multiple_choice' ? choicePayload.correctAnswerIndex : -1,
             correctAnswer: questionType === 'free_text' ? correctAnswer.trim() : null,
             // Each check is switchable, and neither is paid for when it is switched off.
-            coaching: aiAssistEnabled,
+            coaching: coachingEnabled,
             factCheck: factCheckEnabled,
           }),
         });
@@ -222,6 +254,7 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
           const review = (await response.json()) as AiAssistResult;
           setAiAssistReview(review);
           setAccuracyConcern(review.accuracy ?? null);
+          setAccuracyDismissed(false);
 
           // Hold the post while the author decides. Both cards offer a way to override, so nothing
           // here can stop a question being asked.
@@ -246,25 +279,48 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
   const handleUseSuggestion = () => {
     if (!aiAssistReview || aiAssistReview.assessment !== 'NEEDS_REFRAME' || !aiAssistReview.suggestedQuestion) return;
     setText(aiAssistReview.suggestedQuestion);
-    clearAssistReview();
+    // The rewrite settles the coaching card only. An accuracy doubt is about the intended answer,
+    // which a rewrite preserves by design, so that card stays up to be answered on its own terms.
+    setAiAssistReview(null);
     setMessage('');
   };
 
+  /**
+   * Dismisses the rewrite advice. When an accuracy doubt is also on screen the post is still held,
+   * so the more serious check gets an explicit decision instead of being brushed past.
+   */
   const handleKeepMine = async () => {
-    clearAssistReview();
+    setAiAssistReview(null);
+    setMessage('');
+    if (accuracyConcern) return;
     await submitQuestion(text);
   };
 
   /** The author accepted the accuracy hunch and wants to change the question themselves. */
   const handleEditAfterConcern = () => {
     setAccuracyConcern(null);
+    setAccuracyDismissed(true);
     setMessage('');
   };
 
-  /** The author overrode the hunch and posts the question exactly as written. */
+  /**
+   * The author overrode the hunch: the question goes out exactly as written, so any rewrite advice
+   * is moot and both cards close together.
+   */
   const handlePostAnyway = async () => {
     setAccuracyConcern(null);
+    setAccuracyDismissed(true);
+    setAiAssistReview(null);
+    setMessage('');
     await submitQuestion(text);
+  };
+
+  /** The hunch was unwanted: silence the check for good. It can be re-enabled from the profile page. */
+  const handleTurnOffAccuracyCheck = () => {
+    setFactCheckEnabled(false);
+    setAccuracyConcern(null);
+    setAccuracyDismissed(true);
+    setMessage('');
   };
 
   return (
@@ -274,19 +330,38 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
         <h2 className="mt-2 text-3xl font-bold tracking-tight text-zinc-100">Ask your question.</h2>
         <p className="mt-2 text-zinc-400">One question a day. Make it a good one.</p>
 
-        <div className="mt-5 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 md:p-5">
-          <p className="eyebrow">What makes a good question</p>
-          <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-zinc-400 marker:text-violet-400/70">
-            {GUIDANCE_PRINCIPLES.filter((principle) => principle.showInComposer).map((principle) => (
-              <li key={principle.title}>
-                <span className="font-semibold text-zinc-200">{principle.title}</span> {principle.short}
-              </li>
-            ))}
-          </ul>
-          <Link href="/how-to-write-a-question" className="mt-3 inline-block text-sm font-semibold text-violet-300 transition hover:text-violet-200">
-            Read the full guide →
-          </Link>
-        </div>
+        {guidanceVisible ? (
+          <div className="mt-5 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 md:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <p className="eyebrow">What makes a good question</p>
+              <button
+                type="button"
+                onClick={() => setGuidanceVisible(false)}
+                aria-label="Hide question guidance"
+                className="shrink-0 text-xs font-semibold text-zinc-500 transition hover:text-zinc-200"
+              >
+                Hide ✕
+              </button>
+            </div>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-zinc-400 marker:text-violet-400/70">
+              {GUIDANCE_PRINCIPLES.filter((principle) => principle.showInComposer).map((principle) => (
+                <li key={principle.title}>
+                  <span className="font-semibold text-zinc-200">{principle.title}</span> {principle.short}
+                </li>
+              ))}
+            </ul>
+            <Link href="/how-to-write-a-question" className="mt-3 inline-block text-sm font-semibold text-violet-300 transition hover:text-violet-200">
+              Read the full guide →
+            </Link>
+          </div>
+        ) : (
+          <p className="mt-5 text-sm text-zinc-500">
+            Need inspiration?{' '}
+            <Link href="/how-to-write-a-question" className="font-semibold text-violet-300 transition hover:text-violet-200">
+              Read what makes a good question →
+            </Link>
+          </p>
+        )}
 
         {!session ? (
           <div className="mt-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">
@@ -295,33 +370,19 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
         ) : (
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">
             <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-              <p className="text-sm font-medium text-zinc-200">Twiddl Assist</p>
-
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm text-zinc-300">Question coaching</p>
-                  <p className="text-xs text-zinc-400">Optional guidance to make the question more fun to solve.</p>
+                  <p className="text-sm font-medium text-zinc-200">Twiddl Assist</p>
+                  <p className="mt-1 text-xs text-zinc-400">Optional guidance to make the question more fun to solve.</p>
                 </div>
                 <AssistToggle
-                  pressed={aiAssistEnabled}
-                  onToggle={() => setAiAssistEnabled((value) => !value)}
+                  pressed={coachingEnabled}
+                  onToggle={() => setCoachingEnabled((value) => !value)}
                   label="Question coaching"
                 />
               </div>
 
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm text-zinc-300">Accuracy check</p>
-                  <p className="text-xs text-zinc-400">A quick hunch on whether the question or the answer looks wrong or ambiguous. It stays quiet unless it is confident, so most questions get no comment at all.</p>
-                </div>
-                <AssistToggle
-                  pressed={factCheckEnabled}
-                  onToggle={() => setFactCheckEnabled((value) => !value)}
-                  label="Accuracy check"
-                />
-              </div>
-
-              {aiAssistEnabled || factCheckEnabled ? (
+              {coachingEnabled ? (
                 <p className="text-xs text-amber-300/90">
                   Twiddl Assist can occasionally get things wrong. Please check the question and the correct answer yourself before posting.
                 </p>
@@ -431,10 +492,11 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
             ) : null}
 
             {/*
-              The accuracy hunch. Soft on purpose: it offers a doubt, not a correction, and both
-              buttons let the author move on - nothing here blocks posting.
+              The accuracy hunch. Deliberately quiet: no explainer, no toggle here. It only
+              appears when the check was confident, and both paths let the author move on.
+              Turning it off here silences it everywhere; the profile page turns it back on.
             */}
-            {accuracyConcern ? (
+            {accuracyConcern && !accuracyDismissed ? (
               <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
                 <p className="font-medium">Quick sanity check</p>
                 <p className="mt-2">{accuracyConcern.message}</p>
@@ -447,6 +509,9 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                   </button>
                   <button type="button" className="button button-primary" onClick={handlePostAnyway}>
                     Post anyway
+                  </button>
+                  <button type="button" className="button button-ghost text-sm" onClick={handleTurnOffAccuracyCheck}>
+                    Turn off accuracy check
                   </button>
                 </div>
               </div>

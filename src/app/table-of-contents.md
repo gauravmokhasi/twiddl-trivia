@@ -50,6 +50,7 @@
 - `/api/follow/status` - Read the current follow state
 - `/api/questions` - Create questions, and delete your own once they are a day old
 - `/api/answers` - Read or submit one answer per user per question
+- `/api/twiddl-assist` - Question coaching plus the quiet accuracy spot-check that runs before posting (off only via the accuracy card or the profile toggle)
 - `/api/question-reports` - Record a quality report from someone who answered a question incorrectly
 - `/api/cron/twiddloo` - Daily twiddloo question and relationship job
 

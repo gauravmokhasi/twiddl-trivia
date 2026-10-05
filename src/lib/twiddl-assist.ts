@@ -233,7 +233,7 @@ export async function reviewQuestionForAiAssist({
     return review ?? { assessment: 'OKAY', suggestedQuestion: null, shortReason: null };
   } catch (error) {
     const failure = describeGroqFailure(error);
-    console.warn(`[aiAssist] Groq ${failure.kind} error: ${failure.message}`);
+    console.warn(`[twiddlAssist] Groq ${failure.kind} error: ${failure.message}`);
     return { assessment: 'OKAY', suggestedQuestion: null, shortReason: null };
   }
 }
@@ -259,11 +259,12 @@ export function coerceAiAssistAccuracyConcern(raw: unknown): AiAssistAccuracyCon
 }
 
 /**
- * A pending rewrite replaces the question, so accuracy advice about the old wording would be stale by
- * the time the author reads it. Dropping the concern there also keeps one card on screen at a time.
+ * Both checks are reported together, always. An accuracy doubt is the more serious of the two, and a
+ * rewrite offer must never be the reason the author never sees it: the rewrite only changes the
+ * wording, while the concern is about the intended answer, which every rewrite preserves by design.
  */
 export function combineAiAssistResult(review: AiAssistReview, accuracy: AiAssistAccuracyConcern | null): AiAssistResult {
-  return { ...review, accuracy: review.assessment === 'NEEDS_REFRAME' ? null : accuracy };
+  return { ...review, accuracy };
 }
 
 /**
@@ -336,7 +337,7 @@ export async function checkQuestionAccuracy({
     return coerceAiAssistAccuracyConcern(parsed);
   } catch (error) {
     const failure = describeGroqFailure(error);
-    console.warn(`[aiAssist] accuracy check ${failure.kind} error: ${failure.message}`);
+    console.warn(`[twiddlAssist] accuracy check ${failure.kind} error: ${failure.message}`);
     return null;
   }
 }

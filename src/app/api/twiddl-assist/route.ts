@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createRouteSupabase } from '@/lib/supabase-server';
-import { checkQuestionAccuracy, combineAiAssistResult, reviewQuestionForAiAssist, type AiAssistReview } from '@/lib/ai-assist';
+import { checkQuestionAccuracy, combineAiAssistResult, reviewQuestionForAiAssist, type AiAssistReview } from '@/lib/twiddl-assist';
 
 /** Used when the author has switched question coaching off, so no call is made at all. */
 const NO_REVIEW: AiAssistReview = { assessment: 'OKAY', suggestedQuestion: null, shortReason: null };
@@ -25,10 +25,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
     }
 
-    // Both checks are independent and separately switchable. Coaching defaults on (existing clients
-    // send no flag); the accuracy check defaults off so nobody pays for it before opting in.
+    // Both checks run in parallel and are separately switchable. Coaching defaults on
+    // (existing clients send no flag), and the accuracy check defaults on too: it stays
+    // quiet unless it is confident, so running it costs the author nothing when all is well.
     const wantsCoaching = coaching !== false;
-    const wantsFactCheck = factCheck === true;
+    const wantsFactCheck = factCheck !== false;
 
     const question = {
       text,
@@ -45,9 +46,15 @@ export async function POST(request: Request) {
       wantsFactCheck ? checkQuestionAccuracy(question) : Promise.resolve(null),
     ]);
 
+    // One secret-free line per review so server logs show whether each check
+    // ran and whether the accuracy check spoke up (useful when it seems quiet).
+    console.log(
+      `[twiddlAssist] coaching=${wantsCoaching ? review.assessment : 'off'} factCheck=${wantsFactCheck ? (accuracy ? `concern:${accuracy.kind}` : 'silent') : 'off'}`,
+    );
+
     return NextResponse.json(combineAiAssistResult(review, accuracy));
   } catch (error) {
-    console.error('[aiAssist] review failed open', error);
+    console.error('[twiddlAssist] review failed open', error);
     return NextResponse.json({
       assessment: 'OKAY',
       suggestedQuestion: null,

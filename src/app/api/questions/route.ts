@@ -34,7 +34,9 @@ export async function POST(request: Request) {
   }
 
   if (hasAsked) {
-    return NextResponse.json({ error: 'You can only ask one question every 24 hours.' }, { status: 403 });
+    // alreadyAsked lets the composer move the author to the feed instead of leaving them on a form
+    // whose submit can only ever be refused.
+    return NextResponse.json({ error: 'You can only ask one question every 24 hours.', alreadyAsked: true }, { status: 403 });
   }
 
   const { data: insertedQuestion, error: insertError } = await (supabaseAdmin.from('questions') as any).insert({
@@ -51,11 +53,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
+  // twiddloo's answer is a flourish, not part of the author's post. The question is already saved and
+  // has already used up today's allowance, so a twiddloo hiccup is logged rather than reported as a
+  // failed post: telling the author it failed makes them retry, and the retry is refused because they
+  // have in fact already asked today.
   try {
     await ensureTwiddloo();
     if (insertedQuestion) await answerQuestionAsTwiddloo(insertedQuestion);
   } catch (twiddlooError) {
-    return NextResponse.json({ error: twiddlooError instanceof Error ? twiddlooError.message : 'Unable to record twiddloo answer.' }, { status: 500 });
+    console.warn(`[questions] twiddloo did not answer the new question: ${twiddlooError instanceof Error ? twiddlooError.message : String(twiddlooError)}`);
   }
 
   return NextResponse.json({ success: true });

@@ -7,6 +7,7 @@ import { currentQaStreak } from '@/lib/streak';
 import ProfileButton from '@/components/profile-button';
 import ProfileEditor from '@/components/profile-editor';
 import ProfileVisibilityToggle from '@/components/profile-visibility-toggle';
+import AccuracyCheckToggle from '@/components/AccuracyCheckToggle';
 import DeleteQuestionButton from '@/components/DeleteQuestionButton';
 import TriviaSession from '@/components/TriviaSession';
 import TwiddlPulse from '@/components/TwiddlPulse';
@@ -208,17 +209,26 @@ export default async function ProfilePage({ params, searchParams }: Props) {
           </div>
         </div>
         {isCurrentUser ? <ProfileEditor displayName={user.display_name} bio={user.bio} /> : null}
-        <div className="relative mt-8 grid grid-cols-2 gap-4 border-t border-white/[0.07] pt-5 sm:grid-cols-4">
-          <div className="stat"><strong>{followers?.length ?? 0}</strong><span>Followers</span></div>
-          <div className="stat"><strong>{following?.length ?? 0}</strong><span>Following</span></div>
-          <div className="stat"><strong>{correctAnswers?.length ?? 0}</strong><span>Correct</span></div>
-          <div className="stat"><strong>{qaStreak}</strong><span>Q&amp;A streak</span></div>
-        </div>
+        {isCurrentUser ? <AccuracyCheckToggle /> : null}
       </section>
 
-      <TwiddlPulse activity={pulseDays} />
+      <section className="grid items-start gap-5 md:grid-cols-2 lg:grid-cols-3">
+        <div className="card p-5">
+          <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Following</h3><span className="text-sm text-zinc-500">{following?.length ?? 0}</span></div>
+          {!following || following.length === 0 ? (
+            <p className="mt-4 text-slate-700">This user is not following anyone yet.</p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {following.map((followee) => (
+                <Link key={followee.id} href={`/profile/${followee.username}`} className="flex items-center gap-3 border-b border-white/[0.06] py-3 last:border-0 hover:text-violet-300">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/[0.06] text-sm font-bold text-violet-200">{followee.username.charAt(0).toUpperCase()}</span>
+                  <span><span className="block text-sm font-semibold text-zinc-200">{followee.display_name}</span><span className="block text-xs text-zinc-500">@{followee.username}</span></span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
 
-      <section className="grid gap-5 md:grid-cols-2">
         <div className="card p-5">
           <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Followers</h3><span className="text-sm text-zinc-500">{followers?.length ?? 0}</span></div>
           {!followers || followers.length === 0 ? (
@@ -235,20 +245,15 @@ export default async function ProfilePage({ params, searchParams }: Props) {
           )}
         </div>
 
-        <div className="card p-5">
-          <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Following</h3><span className="text-sm text-zinc-500">{following?.length ?? 0}</span></div>
-          {!following || following.length === 0 ? (
-            <p className="mt-4 text-slate-700">This user is not following anyone yet.</p>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {following.map((followee) => (
-                <Link key={followee.id} href={`/profile/${followee.username}`} className="flex items-center gap-3 border-b border-white/[0.06] py-3 last:border-0 hover:text-violet-300">
-                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/[0.06] text-sm font-bold text-violet-200">{followee.username.charAt(0).toUpperCase()}</span>
-                  <span><span className="block text-sm font-semibold text-zinc-200">{followee.display_name}</span><span className="block text-xs text-zinc-500">@{followee.username}</span></span>
-                </Link>
-              ))}
-            </div>
-          )}
+        <div className="card p-5 md:col-span-2 lg:col-span-1">
+          <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Usage</h3></div>
+          <div className="mt-4 grid grid-cols-2 gap-4 border-b border-white/[0.07] pb-5">
+            <div className="stat"><strong>{correctAnswers?.length ?? 0}</strong><span>Correct</span></div>
+            <div className="stat"><strong>{qaStreak}</strong><span>Q&amp;A streak</span></div>
+          </div>
+          <div className="mt-5">
+            <TwiddlPulse activity={pulseDays} bare />
+          </div>
         </div>
       </section>
 

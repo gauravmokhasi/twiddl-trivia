@@ -13,6 +13,8 @@ import {
 
 type Props = {
   activity: PulseDay[];
+  /** Render without the card wrapper, for embedding inside another card (e.g. the profile usage column). */
+  bare?: boolean;
 };
 
 /**
@@ -34,15 +36,15 @@ function shadeFor(day: PulseDay) {
   return day.passiveOnly ? PASSIVE_SHADE : ACTIVE_SHADES[day.score] ?? ACTIVE_SHADES[0];
 }
 
-export default function TwiddlPulse({ activity }: Props) {
+export default function TwiddlPulse({ activity, bare = false }: Props) {
   const [openDate, setOpenDate] = useState<string | null>(null);
   const weeks = buildPulseWeeks(activity);
   const monthLabels = buildPulseMonthLabels(weeks);
   const openDay = activity.find((day) => day.date === openDate) ?? null;
   const openDetail = openDay ? describePulseDay(openDay) : null;
 
-  return (
-    <section className="card p-5 md:p-6">
+  const pulseContent = (
+    <>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-lg font-bold text-zinc-100">Twiddl Pulse</h3>
         <span className="text-xs text-zinc-500">Activity over the last month</span>
@@ -147,6 +149,10 @@ export default function TwiddlPulse({ activity }: Props) {
           <span>Answers received</span>
         </span>
       </div>
-    </section>
+    </>
   );
+
+  if (bare) return <div>{pulseContent}</div>;
+
+  return <section className="card p-5 md:p-6">{pulseContent}</section>;
 }
