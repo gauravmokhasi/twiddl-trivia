@@ -45,7 +45,7 @@
 
 - `/api/profile-sync` - Create or preserve the signed-in user's profile
 - `/api/username` - Validate and save a unique username, checked against every handle and public name
-- `/api/profile-visibility` - Toggle profile visibility
+- `/api/profile-visibility` - Toggle Public/Unlisted profile discovery; handles remain reachable
 - `/api/profile-lookup` - Resolve a typed username (unauthenticated by design, throttled per IP)
 - `/api/follow` - Follow and unfollow users (404 for unknown profiles)
 - `/api/follow/status` - Read the current follow state

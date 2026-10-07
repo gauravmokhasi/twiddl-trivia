@@ -11,7 +11,7 @@ type Options = {
   authorIds?: string[];
   /** Only include questions created at or after this ISO timestamp. */
   sinceIso?: string;
-  /** Only include public questions, skipping private profiles the viewer does not follow. */
+  /** Only include public questions, skipping unlisted profiles the viewer does not follow. */
   publicOnly?: boolean;
 };
 
@@ -66,7 +66,7 @@ export async function unansweredSessionQuestions(options: Options): Promise<Sess
     followedAuthors = new Set(((followRows ?? []) as { followee_id: string }[]).map((row) => row.followee_id));
   }
 
-  // Explore is a discovery surface, so a private profile only shows up there for viewers who
+  // Explore is a discovery surface, so an unlisted profile only shows up there for viewers who
   // already follow it. Followers see those questions like any other author's questions, and the
   // 24-hour feed is unaffected either way.
   const visible = publicOnly
@@ -83,15 +83,12 @@ export async function unansweredSessionQuestions(options: Options): Promise<Sess
   }));
 }
 
-/** How many of these questions the user has not answered yet. */
-export async function countUnansweredQuestions(userId: string, questionIds: string[]) {
-  if (questionIds.length === 0) return 0;
-
-  const { data } = await (supabaseAdmin.from('answers') as any)
-    .select('question_id')
-    .eq('responder_id', userId)
-    .in('question_id', questionIds);
-  const answered = new Set(((data ?? []) as { question_id: string }[]).map((answer) => answer.question_id));
-
-  return questionIds.filter((id) => !answered.has(id)).length;
+/** Aggregate the complete profile-play collection rather than the displayed archive page. */
+export async function profileQuestionCounts(authorId: string, viewerId: string | null) {
+  const { data, error } = await supabaseAdmin.rpc('profile_question_counts', {
+    p_author_id: authorId,
+    p_viewer_id: viewerId,
+  });
+  if (error || !data?.[0]) throw new Error('Unable to load profile question counts.');
+  return { total: Number(data[0].total_questions), unanswered: Number(data[0].unanswered_questions) };
 }

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSyncExternalStore } from 'react';
 import { useAuth } from '@/components/AuthProvider';
+import { isNavigationActive } from '@/lib/navigation';
 
 type Props = {
   /** True for a signed-in member who still owes today's question. */
@@ -22,7 +23,7 @@ const ITEMS = [
 const LAST_SEEN_STORAGE_KEY = 'twiddl-notifications-last-seen';
 
 const LINK_CLASS = 'rounded-lg px-3 py-2 transition hover:bg-white/[0.06] hover:text-zinc-100';
-const ACCENT_LINK_CLASS = 'rounded-lg bg-violet-500/20 px-3 py-2 text-violet-100 ring-1 ring-inset ring-violet-400/40 transition hover:bg-violet-500/30 hover:text-white';
+const ACTIVE_LINK_CLASS = 'rounded-lg bg-violet-500/20 px-3 py-2 text-violet-100 ring-1 ring-inset ring-violet-400/40 transition hover:bg-violet-500/30 hover:text-white';
 const LOCKED_CLASS = 'cursor-not-allowed rounded-lg px-3 py-2 text-zinc-600';
 const LOCKED_HINT = 'Ask your question for today to unlock this';
 
@@ -78,7 +79,12 @@ export default function NavLinks({ locked, notificationsLatestAt }: Props) {
         }
 
         return (
-          <Link key={item.href} href={item.href} className={item.href === '/explore' ? ACCENT_LINK_CLASS : LINK_CLASS}>
+          <Link
+            key={item.href}
+            href={item.href}
+            className={isNavigationActive(pathname, item.href) ? ACTIVE_LINK_CLASS : LINK_CLASS}
+            aria-current={isNavigationActive(pathname, item.href) ? 'page' : undefined}
+          >
             {item.label}
             {item.href === '/notifications' && showDot ? (
               <span aria-label="New activity" className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-violet-400 align-middle" />

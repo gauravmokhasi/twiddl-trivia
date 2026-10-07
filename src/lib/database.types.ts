@@ -152,6 +152,10 @@ export interface Database {
     };
     Views: {};
     Functions: {
+      profile_question_counts: {
+        Args: { p_author_id: string; p_viewer_id: string | null };
+        Returns: { total_questions: number; unanswered_questions: number }[];
+      };
       create_question_with_secret: {
         Args: {
           p_author_id: string;

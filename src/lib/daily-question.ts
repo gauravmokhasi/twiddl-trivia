@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { supabaseAdmin } from './supabase-admin';
-
-export const DAILY_QUESTION_WINDOW_MS = 24 * 60 * 60 * 1000;
+import { hasAskedWithinWindow } from './daily-question-rule';
+export { DAILY_QUESTION_WINDOW_MS } from './daily-question-rule';
 
 type DailyQuestionStatus = {
   hasAsked: boolean;
@@ -9,7 +9,8 @@ type DailyQuestionStatus = {
 };
 
 /**
- * Single source of truth for the "one question per 24 hours" rule.
+ * Read-only view of the rolling daily limit for routing and early API feedback.
+ * Final enforcement lives in Postgres create_question_with_secret.
  * Used by the ask API route, the home page routing, and the app-wide route guard.
  *
  * Memoised per request so a layout and the page it wraps never query this twice in one render.
@@ -31,6 +32,5 @@ export const getDailyQuestionStatus = cache(async (userId: string): Promise<Dail
     return { hasAsked: false, error: null };
   }
 
-  const elapsed = Date.now() - new Date(latest.created_at).getTime();
-  return { hasAsked: elapsed < DAILY_QUESTION_WINDOW_MS, error: null };
+  return { hasAsked: hasAskedWithinWindow(latest.created_at), error: null };
 });

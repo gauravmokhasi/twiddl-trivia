@@ -30,7 +30,7 @@ export default function ProfileVisibilityToggle({ isPublic }: Props) {
     }
 
     setPublicState(!publicState);
-    setMessage(publicState ? 'Profile is now private.' : 'Profile is now public and visible in the universe.');
+    setMessage(publicState ? 'Profile is now unlisted.' : 'Profile is now public and visible in the universe.');
     setIsSaving(false);
   };
 
@@ -42,9 +42,12 @@ export default function ProfileVisibilityToggle({ isPublic }: Props) {
         onClick={toggleVisibility}
         disabled={isSaving}
       >
-        {publicState ? 'Make Private' : 'Make Public'}
+        {publicState ? 'Make Unlisted' : 'Make Public'}
       </button>
-      {message ? <p className="text-sm text-slate-600">{message}</p> : null}
+      <p className="max-w-sm text-xs leading-5 text-zinc-400">
+        Unlisted profiles don&apos;t appear in Universe, but anyone with your handle can still open your profile.
+      </p>
+      {message ? <p role="status" className="text-sm text-zinc-400">{message}</p> : null}
     </div>
   );
 }

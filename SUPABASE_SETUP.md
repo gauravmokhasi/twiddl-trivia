@@ -32,9 +32,9 @@ The app builds its sign-in redirect from `window.location.origin`, so every orig
 
 ## 3) Create the database tables and policies
 
-For a **fresh project**, run the setup SQL below, including the server-only creation function further down. It represents the final P0 schema.
+For a **fresh project**, run the setup SQL below, including the server-only creation function further down. It represents the final P0 + P1 schema.
 
-For an **existing deployment**, use the staged rollout in [P0_ROLLOUT.md](P0_ROLLOUT.md). Do not re-run the fresh setup or apply both P0 migrations automatically.
+For an **existing deployment**, complete [P0_ROLLOUT.md](P0_ROLLOUT.md), then apply the single P1 migration using [P1_ROLLOUT.md](P1_ROLLOUT.md). Do not re-run the fresh setup or apply both P0 migrations automatically.
 
 Run the following SQL in Supabase SQL Editor:
 
@@ -299,17 +299,33 @@ revoke all privileges on public.question_secrets from public, anon, authenticate
 grant all privileges on public.question_secrets to service_role;
 ```
 
-Create the server-only question operation (required by both the question API and twiddloo):
+Protect profile email and create the server-only operations (required by question posting and profile counts):
 
 ```sql
--- A single transaction persists the public question and private key, with no orphan on failure.
--- SECURITY INVOKER: only service_role has EXECUTE and the required table permissions.
--- The rolling daily-limit race is intentionally left for P1; keep the API's existing check.
-create function public.create_question_with_secret(
+-- Keep email for server-side profile sync, but never expose it to browser roles.
+-- Clear table grants AND any existing column SELECT grants, including PUBLIC grants.
+revoke select on public.profiles from public, anon, authenticated;
+do $$
+declare column_names text;
+begin
+  select string_agg(quote_ident(attname), ', ') into column_names
+  from pg_attribute where attrelid = 'public.profiles'::regclass and attnum > 0 and not attisdropped;
+  execute format('revoke select (%s) on public.profiles from public, anon, authenticated', column_names);
+end;
+$$;
+grant select (id, username, display_name, bio, is_public, created_at)
+  on public.profiles to anon, authenticated;
+grant all privileges on public.profiles to service_role;
+
+create index if not exists questions_author_created_at_idx on public.questions (author_id, created_at desc);
+
+-- Replace P0's writer without changing its signature, so the running P0 deployment can still call it.
+-- Read-only API checks help the UI; this function is the authority for the rolling limit.
+create or replace function public.create_question_with_secret(
   p_author_id uuid, p_text text, p_choices text[], p_question_type text,
   p_is_public boolean, p_correct_answer_index int, p_correct_answer text
 ) returns jsonb language plpgsql security invoker set search_path = public, pg_temp as $$
-declare created public.questions;
+declare created public.questions; creation_time timestamptz;
 begin
   if p_question_type is null or p_question_type not in ('multiple_choice', 'free_text')
     or p_text is null or length(btrim(p_text)) not between 1 and 320
@@ -328,14 +344,26 @@ begin
     raise exception 'Invalid free-text answer key.' using errcode = '22023';
   end if;
 
-  insert into public.questions (author_id, text, choices, question_type, is_public)
-  values (p_author_id, btrim(p_text), p_choices, p_question_type, p_is_public)
+  -- One transaction-scoped 64-bit lock per author, shared by user and bot creation paths.
+  -- A hash collision only serializes unrelated authors; it cannot weaken enforcement.
+  -- Capture the time AFTER waiting, so a queued transaction cannot use a stale start time.
+  perform pg_advisory_xact_lock(hashtextextended(p_author_id::text, 0));
+  creation_time := clock_timestamp();
+  if exists (
+    select 1 from public.questions
+    where author_id = p_author_id and created_at > creation_time - interval '24 hours'
+  ) then
+    raise exception 'You can only ask one question every 24 hours.' using errcode = 'TWD01';
+  end if;
+
+  insert into public.questions (author_id, text, choices, question_type, is_public, created_at)
+  values (p_author_id, btrim(p_text), p_choices, p_question_type, p_is_public, creation_time)
   returning * into created;
   insert into public.question_secrets (question_id, correct_answer_index, correct_answer)
   values (created.id, p_correct_answer_index, p_correct_answer)
   on conflict (question_id) do update set
     correct_answer_index = excluded.correct_answer_index, correct_answer = excluded.correct_answer;
-  -- An allowlist also keeps legacy keys out of the RPC response during PREPARE.
+  -- Return public question metadata only; never serialize the private key.
   return jsonb_build_object('id', created.id, 'author_id', created.author_id, 'text', created.text,
     'choices', created.choices, 'question_type', created.question_type,
     'is_public', created.is_public, 'created_at', created.created_at);
@@ -345,10 +373,30 @@ revoke all on function public.create_question_with_secret(uuid, text, text[], te
   from public, anon, authenticated;
 grant execute on function public.create_question_with_secret(uuid, text, text[], text, boolean, int, text)
   to service_role;
+
+-- Match profile play: ALL of the author's questions, no archive-page/date/public-only filter.
+-- A single snapshot prevents the total and remaining count disagreeing during a new post.
+create or replace function public.profile_question_counts(p_author_id uuid, p_viewer_id uuid)
+returns table (total_questions bigint, unanswered_questions bigint)
+language sql stable security invoker set search_path = public, pg_temp as $$
+  select count(*), count(*) filter (
+    where p_viewer_id is not null and p_viewer_id <> q.author_id and a.question_id is null
+  )
+  from public.questions q
+  left join public.answers a on a.question_id = q.id and a.responder_id = p_viewer_id
+  where q.author_id = p_author_id;
+$$;
+revoke all on function public.profile_question_counts(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.profile_question_counts(uuid, uuid) to service_role;
+
 notify pgrst, 'reload schema';
 ```
 
-No browser policies are added for `question_secrets`: keys are read only by trusted server code. The creation function saves the public row and key in one transaction and returns only safe columns. Daily-limit concurrency enforcement is a separate P1 change.
+No browser policies are added for `question_secrets`: keys are read only by trusted server code. The creation function takes a transaction-scoped advisory lock per author, checks the rolling 24-hour limit, saves the public row and key together, and returns only safe columns. Profile counts cover every question by that author, matching profile play rather than archive pagination.
+
+Email stays in `profiles` for server-side account synchronization. Browser SELECT grants allow only `id`, `username`, `display_name`, `bio`, `is_public`, and `created_at`; `SELECT *` and requests filtering/ordering by email will fail for browser roles. The app uses explicit profile selections; account UI gets the signed-in user's own email from Supabase Auth.
+
+“Unlisted” means excluded from Universe discovery, while still reachable by handle. It does not require follower approval.
 
 No policies are added for `question_reports` on purpose. The table is written only by the report API route and read only for the question's author, both through the service-role client, so no browser or session client should touch it at all.
 
@@ -410,8 +458,10 @@ insert into profiles (email, username, display_name, bio, is_public) values
 
 - Keep `SUPABASE_SERVICE_ROLE_KEY` server-only.
 - Do not commit `.env.local`.
-- Existing deployments: apply P0 PREPARE, deploy the P0 code, smoke-test, then apply CLEANUP. See `P0_ROLLOUT.md`.
+- Existing deployments: apply P0 PREPARE, deploy the P0 code, smoke-test, then apply CLEANUP. See `P0_ROLLOUT.md`. After that, apply the single P1 migration before deploying P1; see `P1_ROLLOUT.md`.
 - Never expose `question_secrets` or re-grant browser writes to `questions`/`answers`. Answer results reveal keys only after a successfully persisted answer (or to the question author).
+- Keep browser email SELECT grants revoked, including table-wide and column-specific grants.
+- All application question creation (including twiddloo) uses `create_question_with_secret`; the database enforces one post per rolling 24 hours per author. A slightly early/overlapping bot invocation returns the existing question rather than posting twice.
 - The `answers` table has a unique `(question_id, responder_id)` constraint so a user can answer each question only once.
 - Handles and public names are unique, ignoring case, enforced by the `profiles_username_lower_key` index and the `profiles_identity_unique` trigger.
 - Authors delete their own questions through the service-role client. The `questions` table has no `delete` policy, so no browser or session client can remove rows directly, and `answers` and `question_reports` follow their question away through `on delete cascade`.

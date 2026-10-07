@@ -12,9 +12,8 @@ import DeleteQuestionButton from '@/components/DeleteQuestionButton';
 import TriviaSession from '@/components/TriviaSession';
 import TwiddlPulse from '@/components/TwiddlPulse';
 import { buildPulseDays, PULSE_WINDOW_DAYS } from '@/lib/pulse';
-import { countUnansweredQuestions, unansweredSessionQuestions } from '@/lib/session-questions';
+import { profileQuestionCounts, unansweredSessionQuestions } from '@/lib/session-questions';
 import { requireAskedToday } from '@/lib/daily-question-gate';
-import type { Database } from '@/lib/database.types';
 
 const ARCHIVE_PAGE_SIZE = 20;
 
@@ -52,14 +51,14 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     notFound();
   }
 
-  // A private profile is unlisted rather than unreachable: it never appears in the Universe
+  // An unlisted profile is reachable by handle: it never appears in the Universe
   // (that listing filters on is_public) but anyone who has the username can still open it and
   // follow it, which is the point of sharing the handle.
 
   // Answering this user's questions is the default visit for signed-in visitors. The profile
   // page itself (counts, followers, archive, follow button) opens when the viewer asks for it
   // with ?view=profile, when there is nobody to answer as (signed out), or when the profile
-  // belongs to the viewer. A private profile keeps that profile-first default for viewers who
+  // belongs to the viewer. An unlisted profile keeps that profile-first default for viewers who
   // do not follow it yet, which is where the follow button lives; viewers who already follow it
   // are treated like any other profile. ?play=1 always starts answering.
   let startAnswering = user.is_public || play === '1';
@@ -112,7 +111,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
   const archivePage = Math.max(1, Number.parseInt(page ?? '1', 10) || 1);
   const archiveFrom = (archivePage - 1) * ARCHIVE_PAGE_SIZE;
   const archiveTo = archiveFrom + ARCHIVE_PAGE_SIZE - 1;
-  const [{ data: userQuestions, count: archiveCount }, { data: followerRelations }, { data: followingRelations }, { data: correctAnswers }, { data: askedDates }, { data: answeredDates }] = await Promise.all([
+  const [{ data: userQuestions, count: archiveCount }, { data: followerRelations }, { data: followingRelations }, { count: correctAnswerCount }, { data: askedDates }, { data: answeredDates }] = await Promise.all([
     supabaseAdmin
       .from('questions')
       .select('id, text, created_at', { count: 'exact' })
@@ -123,7 +122,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     supabaseAdmin.from('follows').select('followee_id').eq('follower_id', user.id),
     supabaseAdmin
       .from('answers')
-      .select('id', { count: 'exact' })
+      .select('id', { count: 'exact', head: true })
       .eq('responder_id', user.id)
       .eq('is_correct', true),
     supabaseAdmin.from('questions').select('created_at').eq('author_id', user.id),
@@ -156,9 +155,10 @@ export default async function ProfilePage({ params, searchParams }: Props) {
   ]);
 
   const isCurrentUser = currentUserId === user.id;
-  const unansweredCount = currentUserId && !isCurrentUser && typedUserQuestions && typedUserQuestions.length > 0
-    ? await countUnansweredQuestions(currentUserId, typedUserQuestions.map((question) => question.id))
-    : 0;
+  const profileCounts = currentUserId && !isCurrentUser
+    ? await profileQuestionCounts(user.id, currentUserId)
+    : null;
+  const unansweredCount = profileCounts?.unanswered ?? 0;
 
   // Twiddl Pulse reuses the asked/answered timestamps already loaded above and adds one aggregate
   // query: answers left by OTHER people on this user's questions, within the displayed window.
@@ -200,7 +200,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-3xl font-bold tracking-tight text-zinc-100">{user.display_name}</h2>
-                <span className="badge badge-neutral">{user.is_public ? 'Public' : 'Private'}</span>
+                <span className="badge badge-neutral">{user.is_public ? 'Public' : 'Unlisted'}</span>
               </div>
               <p className="mt-1 text-sm text-violet-300">@{user.username}</p>
               <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-400">{user.bio || 'A curious mind in the Twiddl universe.'}</p>
@@ -214,8 +214,8 @@ export default async function ProfilePage({ params, searchParams }: Props) {
                 Answer {unansweredCount} question{unansweredCount === 1 ? '' : 's'} →
               </Link>
             ) : null}
-            {!isCurrentUser && unansweredCount === 0 && (typedUserQuestions?.length ?? 0) > 0 ? (
-              <span className="text-xs text-zinc-500">You have answered all {typedUserQuestions?.length} of their questions.</span>
+            {profileCounts && unansweredCount === 0 && profileCounts.total > 0 ? (
+              <span className="text-xs text-zinc-500">You have answered all {profileCounts.total} of their questions.</span>
             ) : null}
             {!isCurrentUser ? <ProfileButton profileId={user.id} /> : null}
           </div>
@@ -260,7 +260,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
         <div className="card p-5 md:col-span-2 lg:col-span-1">
           <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Usage</h3></div>
           <div className="mt-4 grid grid-cols-2 gap-4 border-b border-white/[0.07] pb-5">
-            <div className="stat"><strong>{correctAnswers?.length ?? 0}</strong><span>Correct</span></div>
+            <div className="stat"><strong>{correctAnswerCount ?? 0}</strong><span>Correct</span></div>
             <div className="stat"><strong>{qaStreak}</strong><span>Q&amp;A streak</span></div>
           </div>
           <div className="mt-5">

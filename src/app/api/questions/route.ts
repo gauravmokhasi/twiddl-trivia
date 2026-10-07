@@ -13,6 +13,7 @@ import { answerQuestionAsTwiddloo, ensureTwiddloo } from '@/lib/twiddloo';
 import { getDailyQuestionStatus } from '@/lib/daily-question';
 import { canDeleteQuestion } from '@/lib/question-deletion';
 import { createQuestionWithSecret } from '@/lib/question-secrets-server';
+import { dailyQuestionLimitResponse, isDailyQuestionLimitError } from '@/lib/daily-question-rule';
 
 export async function POST(request: Request) {
   const user = await getAuthenticatedUser();
@@ -79,7 +80,7 @@ export async function POST(request: Request) {
   if (hasAsked) {
     // alreadyAsked lets the composer move the author to the feed instead of leaving them on a form
     // whose submit can only ever be refused.
-    return NextResponse.json({ error: 'You can only ask one question every 24 hours.', alreadyAsked: true }, { status: 403 });
+    return NextResponse.json(dailyQuestionLimitResponse(), { status: 403 });
   }
 
   const { data: insertedQuestion, error: insertError } = await createQuestionWithSecret({
@@ -93,6 +94,9 @@ export async function POST(request: Request) {
   });
 
   if (insertError) {
+    if (isDailyQuestionLimitError(insertError)) {
+      return NextResponse.json(dailyQuestionLimitResponse(), { status: 403 });
+    }
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 

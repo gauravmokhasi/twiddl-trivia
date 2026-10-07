@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { gradeAnswer } from '@/lib/answer-grading';
+import { isDailyQuestionLimitError } from '@/lib/daily-question-rule';
 import { createQuestionWithSecret, loadQuestionSecret } from '@/lib/question-secrets-server';
 import { generateTwiddlooQuestion } from '@/lib/twiddloo-question-generator';
 import { guessAnswerWithGroq, matchGuessToChoices } from '@/lib/groq-answer';
@@ -300,6 +301,13 @@ async function insertTwiddlooQuestion(question: PoolQuestion) {
     p_correct_answer: isMultipleChoice ? null : question.correctAnswer,
   });
 
+  if (isDailyQuestionLimitError(insertError)) {
+    // Overlapping cron runs or a slightly early daily invocation must not create a second post.
+    const { data: latest, error } = await supabaseAdmin.from('questions').select('id')
+      .eq('author_id', TWIDDLOO_ID).order('created_at', { ascending: false }).limit(1).single();
+    if (error || !latest) throw new Error("Unable to find twiddloo's existing question.");
+    return latest.id;
+  }
   if (insertError || !insertedQuestion) throw new Error(insertError?.message ?? 'Unable to create twiddloo question.');
   return insertedQuestion.id as string;
 }

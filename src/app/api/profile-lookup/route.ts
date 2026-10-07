@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { rateLimit } from '@/lib/rate-limit';
 
 /**
- * Resolves a typed-in username to a profile. Private profiles are unlisted rather than secret,
+ * Resolves a typed-in username to a profile. Unlisted profiles remain reachable by handle,
  * so an exact handle is deliberately enough to find one.
  */
 export async function GET(request: Request) {

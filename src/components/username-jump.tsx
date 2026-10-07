@@ -56,7 +56,7 @@ export default function UsernameJump() {
         </button>
       </div>
       {message ? <p className="text-sm text-rose-300">{message}</p> : null}
-      <p className="text-xs text-zinc-500">Private profiles are never listed here. If someone shared their username with you, enter it above to open their profile and follow them.</p>
+      <p className="text-xs text-zinc-500">Unlisted profiles are never listed here. If someone shared their username with you, enter it above to open their profile and follow them.</p>
     </form>
   );
 }
