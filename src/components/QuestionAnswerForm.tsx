@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { Question } from '@/lib/database.types';
+import type { PlayableQuestion } from '@/lib/playable-question';
 import { describeAcceptedAnswer, differsFromAcceptedAnswer, primaryAcceptedAnswer } from '@/lib/answer-checker';
 import QuestionReportPrompt from '@/components/QuestionReportPrompt';
 
@@ -17,7 +17,7 @@ export type AnswerOutcome = {
  * Free-text answers can list accepted aliases after commas, so explain them instead of showing
  * the raw list to someone who got it wrong. Multiple choice keeps the simpler wording.
  */
-function explainCorrectAnswer(question: Question, correctText: string | null) {
+function explainCorrectAnswer(question: PlayableQuestion, correctText: string | null) {
   if (!correctText) return 'The correct answer is not recorded.';
 
   return question.question_type === 'free_text'
@@ -29,7 +29,7 @@ function explainCorrectAnswer(question: Question, correctText: string | null) {
  * A correct free-text answer can still be a near miss, so note the original answer whenever the
  * typing differed from it (a small typo, different punctuation, or an accepted alias).
  */
-function originalAnswerNote(question: Question, submitted: string | null, correctText: string | null) {
+function originalAnswerNote(question: PlayableQuestion, submitted: string | null, correctText: string | null) {
   if (question.question_type !== 'free_text' || !submitted || !correctText) return '';
   if (!differsFromAcceptedAnswer(submitted, correctText)) return '';
 
@@ -37,7 +37,7 @@ function originalAnswerNote(question: Question, submitted: string | null, correc
 }
 
 type Props = {
-  question: Question;
+  question: PlayableQuestion;
   authorId: string;
   /** When provided, the parent owns the result UI (used by the one-question-at-a-time flow). */
   onResult?: (outcome: AnswerOutcome) => void;
@@ -71,7 +71,7 @@ export default function QuestionAnswerForm({ question, authorId, onResult, skipE
         return;
       }
 
-      const correctText = question.correct_answer ?? question.choices[data.correctAnswerIndex];
+      const correctText = data.correctText ?? null;
       setSelectedIndex(data.selectedChoiceIndex ?? null);
       setAnswerText(data.answerText ?? '');
       setIsLocked(true);
@@ -134,17 +134,17 @@ export default function QuestionAnswerForm({ question, authorId, onResult, skipE
         isCorrect: Boolean(data.isCorrect),
         selectedChoiceIndex: data.selectedChoiceIndex ?? null,
         answerText: data.answerText ?? null,
-        correctText: question.correct_answer ?? question.choices[data.correctAnswerIndex] ?? null,
+        correctText: data.correctText ?? null,
       });
       return;
     }
 
     if (data.isCorrect) {
       setStatusMessage(question.question_type === 'free_text'
-        ? `Nice! Your answer is correct.${originalAnswerNote(question, data.answerText ?? answerText.trim(), question.correct_answer ?? null)}`
+        ? `Nice! Your answer is correct.${originalAnswerNote(question, data.answerText ?? answerText.trim(), data.correctText ?? null)}`
         : `Nice! Your answer is correct. You chose: ${question.choices[data.selectedChoiceIndex]}.`);
     } else {
-      const correctText = question.correct_answer ?? question.choices[data.correctAnswerIndex];
+      const correctText = data.correctText ?? null;
       setStatusMessage(`That answer is not correct. ${explainCorrectAnswer(question, correctText)}`);
     }
   };

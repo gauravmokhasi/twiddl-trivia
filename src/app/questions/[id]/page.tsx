@@ -8,7 +8,9 @@ import { getAuthenticatedServerUser } from '@/lib/auth-server';
 import { requireAskedToday } from '@/lib/daily-question-gate';
 import { EMPTY_REPORT_SUMMARY, REPORT_REASON_LABELS, describeReportCount } from '@/lib/question-reports';
 import { loadQuestionReportSummary } from '@/lib/question-reports-server';
-import type { Database } from '@/lib/database.types';
+import { PLAYABLE_QUESTION_COLUMNS, toPlayableQuestion, type PlayableQuestion } from '@/lib/playable-question';
+import { loadQuestionSecret } from '@/lib/question-secrets-server';
+import { correctAnswerText as describeSecret } from '@/lib/answer-grading';
 
 type Props = {
   params: Promise<{
@@ -26,20 +28,10 @@ export default async function QuestionPage({ params }: Props) {
 
   const { data: questionData, error: questionError } = await supabaseAdmin
     .from('questions')
-    .select('id, author_id, text, choices, correct_answer_index, question_type, correct_answer, is_public, created_at')
+    .select(PLAYABLE_QUESTION_COLUMNS)
     .eq('id', id)
     .single();
-  const question = questionData as {
-    id: string;
-    author_id: string;
-    text: string;
-    choices: string[];
-    correct_answer_index: number;
-    question_type: 'multiple_choice' | 'free_text';
-    correct_answer: string | null;
-    is_public: boolean;
-    created_at: string;
-  } | null;
+  const question = questionData as PlayableQuestion | null;
 
   if (questionError || !question) {
     notFound();
@@ -51,11 +43,11 @@ export default async function QuestionPage({ params }: Props) {
       .select('id, username, display_name')
       .eq('id', question.author_id)
       .single(),
-    supabaseAdmin
+    currentUserId === question.author_id ? supabaseAdmin
       .from('answers')
       .select('id, responder_id, selected_choice_index, answer_text, is_correct, created_at')
       .eq('question_id', question.id)
-      .order('created_at', { ascending: true }),
+      .order('created_at', { ascending: true }) : Promise.resolve({ data: [] }),
   ]);
   const author = authorData as { id: string; username: string; display_name: string | null } | null;
   const answerRows = answerRowsData as {
@@ -74,11 +66,14 @@ export default async function QuestionPage({ params }: Props) {
   const responders = respondersData as { id: string; username: string; display_name: string | null }[] | null;
   const responderMap = new Map((responders ?? []).map((profile) => [profile.id, profile]));
 
-  // What this author marked as correct. Only rendered inside the author-only summary below.
-  const correctChoice = question.choices[question.correct_answer_index];
-  const correctAnswerText = question.question_type === 'free_text'
-    ? (question.correct_answer ?? 'Not set')
-    : (correctChoice ? `${String.fromCharCode(65 + question.correct_answer_index)}. ${correctChoice}` : 'Not set');
+  // Read the private key only for the author; pass only an explicit safe object to the form.
+  let correctAnswerText = 'Not set';
+  if (currentUserId === question.author_id) {
+    const secret = await loadQuestionSecret(question.id);
+    const text = describeSecret(question, secret);
+    correctAnswerText = question.question_type === 'multiple_choice'
+      ? `${String.fromCharCode(65 + (secret.correct_answer_index ?? 0))}. ${text}` : text;
+  }
 
   // Quality reports are private to the author, so they are only read when the author is looking.
   const reportSummary = currentUserId === question.author_id
@@ -189,7 +184,7 @@ export default async function QuestionPage({ params }: Props) {
           {question.question_type === 'free_text' ? 'Type your answer below and submit to see whether it is correct.' : 'Choose one answer below and submit to see whether it is correct.'}
         </p>
         <div className="mt-6">
-          <QuestionAnswerForm question={question} authorId={question.author_id} authorUsername={author?.username} />
+          <QuestionAnswerForm question={toPlayableQuestion(question)} authorId={question.author_id} authorUsername={author?.username} />
         </div>
       </section>
     </div>

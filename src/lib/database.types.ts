@@ -30,6 +30,7 @@ export interface Database {
           is_public?: boolean;
           created_at?: string;
         };
+        Relationships: [];
       };
       follows: {
         Row: {
@@ -47,6 +48,7 @@ export interface Database {
           followee_id?: string;
           created_at?: string;
         };
+        Relationships: [];
       };
       questions: {
         Row: {
@@ -54,9 +56,7 @@ export interface Database {
           author_id: string;
           text: string;
           choices: string[];
-          correct_answer_index: number;
           question_type: 'multiple_choice' | 'free_text';
-          correct_answer: string | null;
           is_public: boolean;
           created_at: string;
         };
@@ -65,21 +65,24 @@ export interface Database {
           author_id: string;
           text: string;
           choices: string[];
-          correct_answer_index: number;
           question_type?: 'multiple_choice' | 'free_text';
-          correct_answer?: string | null;
           is_public?: boolean;
           created_at?: string;
         };
         Update: {
           text?: string;
           choices?: string[];
-          correct_answer_index?: number;
           question_type?: 'multiple_choice' | 'free_text';
-          correct_answer?: string | null;
           is_public?: boolean;
           created_at?: string;
         };
+        Relationships: [];
+      };
+      question_secrets: {
+        Row: { question_id: string; correct_answer_index: number | null; correct_answer: string | null };
+        Insert: { question_id: string; correct_answer_index?: number | null; correct_answer?: string | null };
+        Update: { correct_answer_index?: number | null; correct_answer?: string | null };
+        Relationships: [];
       };
       answers: {
         Row: {
@@ -106,6 +109,7 @@ export interface Database {
           is_correct?: boolean;
           created_at?: string;
         };
+        Relationships: [];
       };
       question_reports: {
         Row: {
@@ -129,6 +133,7 @@ export interface Database {
           is_anonymous?: boolean;
           created_at?: string;
         };
+        Relationships: [];
       };
       bot_follow_opt_outs: {
         Row: {
@@ -142,10 +147,24 @@ export interface Database {
         Update: {
           created_at?: string;
         };
+        Relationships: [];
       };
     };
     Views: {};
-    Functions: {};
+    Functions: {
+      create_question_with_secret: {
+        Args: {
+          p_author_id: string;
+          p_text: string;
+          p_choices: string[];
+          p_question_type: 'multiple_choice' | 'free_text';
+          p_is_public: boolean;
+          p_correct_answer_index: number | null;
+          p_correct_answer: string | null;
+        };
+        Returns: Json;
+      };
+    };
     Enums: {};
   };
 }

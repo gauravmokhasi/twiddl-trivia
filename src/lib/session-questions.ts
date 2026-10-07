@@ -1,9 +1,9 @@
 import { supabaseAdmin } from './supabase-admin';
-import type { Question } from './database.types';
+import { PLAYABLE_QUESTION_COLUMNS, toPlayableQuestion, type PlayableQuestion } from './playable-question';
 
-export type SessionQuestion = Question & { author_username: string };
+export type SessionQuestion = PlayableQuestion & { author_username: string };
 
-export const SESSION_QUESTION_COLUMNS = 'id, author_id, text, choices, correct_answer_index, question_type, correct_answer, is_public, created_at';
+export const SESSION_QUESTION_COLUMNS = PLAYABLE_QUESTION_COLUMNS;
 
 type Options = {
   userId: string;
@@ -34,7 +34,7 @@ export async function unansweredSessionQuestions(options: Options): Promise<Sess
   if (publicOnly) questionsQuery = questionsQuery.eq('is_public', true);
 
   const { data: questionsData } = await questionsQuery;
-  const questions = (questionsData ?? []) as Question[];
+  const questions = (questionsData ?? []) as PlayableQuestion[];
   if (questions.length === 0) return [];
 
   const questionIds = questions.map((question) => question.id);
@@ -78,7 +78,7 @@ export async function unansweredSessionQuestions(options: Options): Promise<Sess
     : unanswered;
 
   return visible.map((question) => ({
-    ...question,
+    ...toPlayableQuestion(question),
     author_username: authorMap.get(question.author_id)?.username ?? 'unknown',
   }));
 }

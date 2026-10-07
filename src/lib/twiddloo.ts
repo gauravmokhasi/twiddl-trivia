@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { isAnswerCorrect } from '@/lib/answer-checker';
+import { gradeAnswer } from '@/lib/answer-grading';
+import { createQuestionWithSecret, loadQuestionSecret } from '@/lib/question-secrets-server';
 import { generateTwiddlooQuestion } from '@/lib/twiddloo-question-generator';
 import { guessAnswerWithGroq, matchGuessToChoices } from '@/lib/groq-answer';
 
@@ -78,13 +79,7 @@ export async function answerQuestionAsTwiddloo(question: {
 }) {
   if (question.question_type === 'multiple_choice' && question.choices.length === 0) return;
 
-  const { data: gradingData } = await supabaseAdmin
-    .from('questions')
-    .select('correct_answer_index, correct_answer')
-    .eq('id', question.id)
-    .single();
-
-  const grading = gradingData as { correct_answer_index: number; correct_answer: string | null } | null;
+  const grading = await loadQuestionSecret(question.id);
 
   // Genuine attempt: the answer key is never sent, and if Groq is unavailable we fall back to a
   // simple guess, so twiddloo can get questions wrong the way a player can.
@@ -100,16 +95,11 @@ export async function answerQuestionAsTwiddloo(question: {
 
   console.log(`[twiddloo] answering ${question.id} with ${guess ? `"${guess}"` : 'a last-word guess'}`);
 
-  const isCorrect = question.question_type === 'free_text'
-    ? isAnswerCorrect(answerText ?? '', grading?.correct_answer ?? '')
-    : selectedChoiceIndex === grading?.correct_answer_index;
-
+  const gradedAnswer = gradeAnswer(question, grading, selectedChoiceIndex, answerText);
   const { error } = await (supabaseAdmin.from('answers') as any).upsert({
     question_id: question.id,
     responder_id: TWIDDLOO_ID,
-    selected_choice_index: selectedChoiceIndex,
-    answer_text: answerText,
-    is_correct: isCorrect,
+    ...gradedAnswer,
   }, { onConflict: ['question_id', 'responder_id'] });
 
   if (error) throw new Error(error.message);
@@ -300,15 +290,15 @@ export async function seedTodaysTwiddlooQuestion() {
 async function insertTwiddlooQuestion(question: PoolQuestion) {
   const isMultipleChoice = question.questionType === 'multiple_choice';
 
-  const { data: insertedQuestion, error: insertError } = await (supabaseAdmin.from('questions') as any).insert({
-    author_id: TWIDDLOO_ID,
-    text: question.text,
-    choices: isMultipleChoice ? question.choices : [],
-    correct_answer_index: isMultipleChoice ? question.correctAnswerIndex : -1,
-    question_type: question.questionType,
-    correct_answer: isMultipleChoice ? null : question.correctAnswer,
-    is_public: true,
-  }).select('id').single();
+  const { data: insertedQuestion, error: insertError } = await createQuestionWithSecret({
+    p_author_id: TWIDDLOO_ID,
+    p_text: question.text,
+    p_choices: isMultipleChoice ? question.choices : [],
+    p_question_type: question.questionType,
+    p_is_public: true,
+    p_correct_answer_index: isMultipleChoice ? question.correctAnswerIndex : null,
+    p_correct_answer: isMultipleChoice ? null : question.correctAnswer,
+  });
 
   if (insertError || !insertedQuestion) throw new Error(insertError?.message ?? 'Unable to create twiddloo question.');
   return insertedQuestion.id as string;

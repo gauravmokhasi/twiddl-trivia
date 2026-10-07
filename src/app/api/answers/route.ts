@@ -1,155 +1,91 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthenticatedUser } from '@/lib/auth-server';
-import { MAX_ANSWER_TEXT, readJsonBody } from '@/lib/api-guards';
-import { isAnswerCorrect } from '@/lib/answer-checker';
+import { readJsonBody } from '@/lib/api-guards';
+import { answeredResult, gradeAnswer, validateAnswer } from '@/lib/answer-grading';
+import { loadQuestionSecret } from '@/lib/question-secrets-server';
 import type { Database } from '@/lib/database.types';
 
-export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const questionId = url.searchParams.get('questionId');
+type Answer = Database['public']['Tables']['answers']['Row'];
+const ANSWER_COLUMNS = 'id, selected_choice_index, answer_text, is_correct, question_id';
 
-  if (!questionId) {
-    return NextResponse.json({ error: 'questionId is required.' }, { status: 400 });
-  }
+function resultResponse(data: ReturnType<typeof answeredResult> | { hasAnswered: false }) {
+  return NextResponse.json(data, { headers: { 'Cache-Control': 'private, no-store' } });
+}
+
+export async function GET(request: Request) {
+  const questionId = new URL(request.url).searchParams.get('questionId');
+  if (!questionId) return NextResponse.json({ error: 'questionId is required.' }, { status: 400 });
 
   const user = await getAuthenticatedUser();
-  if (!user?.id) {
-    return NextResponse.json({ hasAnswered: false });
+  if (!user?.id) return resultResponse({ hasAnswered: false });
+
+  const { data, error } = await supabaseAdmin.from('answers').select(ANSWER_COLUMNS)
+    .eq('question_id', questionId).eq('responder_id', user.id).maybeSingle();
+  if (error) return NextResponse.json({ error: 'Unable to load your answer.' }, { status: 500 });
+  // Do not even read the secret until this viewer has an answer on record.
+  if (!data) return resultResponse({ hasAnswered: false });
+
+  const { data: question, error: questionError } = await supabaseAdmin.from('questions')
+    .select('question_type, choices').eq('id', questionId).single();
+  if (questionError || !question) return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
+
+  try {
+    const secret = await loadQuestionSecret(questionId);
+    return resultResponse(answeredResult(question, secret, data as Answer));
+  } catch {
+    return NextResponse.json({ error: 'Unable to load the answer result.' }, { status: 500 });
   }
-
-  const { data: answerData, error } = await supabaseAdmin
-    .from('answers')
-    .select('id, selected_choice_index, answer_text, is_correct, question_id')
-    .eq('question_id', questionId)
-    .eq('responder_id', user.id)
-    .maybeSingle();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  const answer = answerData as {
-    selected_choice_index: number | null;
-    answer_text: string | null;
-    is_correct: boolean;
-  } | null;
-
-  if (!answer) {
-    return NextResponse.json({ hasAnswered: false });
-  }
-
-  const { data: questionData } = await supabaseAdmin
-    .from('questions')
-    .select('correct_answer_index, question_type, correct_answer')
-    .eq('id', questionId)
-    .single();
-  const question = questionData as { correct_answer_index: number } | null;
-
-  return NextResponse.json({
-    hasAnswered: true,
-    selectedChoiceIndex: answer.selected_choice_index,
-    answerText: answer.answer_text,
-    isCorrect: answer.is_correct,
-    correctAnswerIndex: question?.correct_answer_index ?? answer.selected_choice_index,
-  });
 }
 
 export async function POST(request: Request) {
   const user = await getAuthenticatedUser();
-  if (!user?.id) {
-    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
-  }
+  if (!user?.id) return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
 
   const body = await readJsonBody(request);
-  if (!body) {
-    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
-  }
-  const { questionId, selectedChoiceIndex, answerText } = body as {
-    questionId?: unknown;
-    selectedChoiceIndex?: unknown;
-    answerText?: unknown;
-  };
-
+  if (!body) return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+  const { questionId, selectedChoiceIndex, answerText } = body;
   if (typeof questionId !== 'string' || !questionId) {
     return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 });
   }
 
-  const { data: questionData, error: questionError } = await supabaseAdmin
-    .from('questions')
-    .select('id, author_id, correct_answer_index, question_type, correct_answer')
-    .eq('id', questionId)
-    .single();
-  const question = questionData as {
-    id: string;
-    author_id: string;
-    correct_answer_index: number;
-    question_type: 'multiple_choice' | 'free_text';
-    correct_answer: string | null;
-  } | null;
-
-  if (questionError || !question) {
-    return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
-  }
-
-  // Prevent users from answering their own questions
+  const { data: question, error: questionError } = await supabaseAdmin.from('questions')
+    .select('id, author_id, choices, question_type').eq('id', questionId).single();
+  if (questionError || !question) return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
   if (question.author_id === user.id) {
     return NextResponse.json({ error: 'You cannot answer your own question.' }, { status: 403 });
   }
+  const validationError = validateAnswer(question, selectedChoiceIndex, answerText);
+  if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
 
-  if (question.question_type === 'multiple_choice' && (typeof selectedChoiceIndex !== 'number' || selectedChoiceIndex < 0)) {
-    return NextResponse.json({ error: 'Please select one of the answer choices.' }, { status: 400 });
-  }
+  const { data: existingAnswer, error: lookupError } = await supabaseAdmin.from('answers').select(ANSWER_COLUMNS)
+    .eq('question_id', questionId).eq('responder_id', user.id).maybeSingle();
+  if (lookupError) return NextResponse.json({ error: 'Unable to check your previous answer.' }, { status: 500 });
 
-  if (question.question_type === 'free_text') {
-    if (typeof answerText !== 'string' || !answerText.trim() || answerText.trim().length > MAX_ANSWER_TEXT) {
-      return NextResponse.json({ error: `Please enter an answer (${MAX_ANSWER_TEXT} characters or fewer).` }, { status: 400 });
+  try {
+    const secret = await loadQuestionSecret(questionId);
+    if (existingAnswer) return resultResponse(answeredResult(question, secret, existingAnswer as Answer));
+
+    const gradedAnswer = gradeAnswer(question, secret, selectedChoiceIndex, answerText);
+    const payload: Database['public']['Tables']['answers']['Insert'] = {
+      question_id: questionId,
+      responder_id: user.id,
+      ...gradedAnswer,
+    };
+    const { error: insertError } = await supabaseAdmin.from('answers').insert(payload);
+    if (insertError) {
+      // Two tabs can submit together. The unique constraint chooses the first recorded answer;
+      // always return that outcome, never grade the losing request as a second attempt.
+      if (insertError.code === '23505') {
+        const { data: recorded, error: recordedError } = await supabaseAdmin.from('answers').select(ANSWER_COLUMNS)
+          .eq('question_id', questionId).eq('responder_id', user.id).single();
+        if (!recordedError && recorded) return resultResponse(answeredResult(question, secret, recorded as Answer));
+      }
+      return NextResponse.json({ error: 'Unable to save your answer.' }, { status: 500 });
     }
+    // An answer key is returned only after the grade has successfully been persisted.
+    return resultResponse(answeredResult(question, secret, gradedAnswer));
+  } catch {
+    return NextResponse.json({ error: 'Unable to grade this answer right now.' }, { status: 500 });
   }
-
-  const { data: existingAnswerData } = await supabaseAdmin
-    .from('answers')
-    .select('id, selected_choice_index, is_correct')
-    .eq('question_id', questionId)
-    .eq('responder_id', user.id)
-    .maybeSingle();
-  const existingAnswer = existingAnswerData as {
-    selected_choice_index: number | null;
-    answer_text: string | null;
-    is_correct: boolean;
-  } | null;
-
-  if (existingAnswer) {
-    return NextResponse.json({
-      hasAnswered: true,
-      selectedChoiceIndex: existingAnswer.selected_choice_index,
-      answerText: existingAnswer.answer_text,
-      isCorrect: existingAnswer.is_correct,
-      correctAnswerIndex: question.correct_answer_index,
-    }, { status: 200 });
-  }
-
-  const isCorrect = question.question_type === 'free_text'
-    ? isAnswerCorrect((answerText as string).trim(), question.correct_answer ?? '')
-    : selectedChoiceIndex === question.correct_answer_index;
-  const answerPayload = {
-    question_id: questionId,
-    responder_id: user.id,
-    selected_choice_index: question.question_type === 'multiple_choice' ? selectedChoiceIndex : null,
-    answer_text: question.question_type === 'free_text' ? (answerText as string).trim() : null,
-    is_correct: isCorrect,
-  } as Database['public']['Tables']['answers']['Insert'];
-  const { error: insertError } = await (supabaseAdmin.from('answers') as any).insert(answerPayload);
-
-  if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
-  }
-
-  return NextResponse.json({
-    hasAnswered: true,
-    isCorrect,
-    selectedChoiceIndex: question.question_type === 'multiple_choice' ? selectedChoiceIndex : null,
-    answerText: question.question_type === 'free_text' ? (answerText as string).trim() : null,
-    correctAnswerIndex: question.correct_answer_index,
-  });
 }

@@ -12,6 +12,7 @@ import { rateLimit } from '@/lib/rate-limit';
 import { answerQuestionAsTwiddloo, ensureTwiddloo } from '@/lib/twiddloo';
 import { getDailyQuestionStatus } from '@/lib/daily-question';
 import { canDeleteQuestion } from '@/lib/question-deletion';
+import { createQuestionWithSecret } from '@/lib/question-secrets-server';
 
 export async function POST(request: Request) {
   const user = await getAuthenticatedUser();
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
       || choices.length > MAX_CHOICES
       || choices.some((choice) => typeof choice !== 'string' || !choice.trim() || choice.trim().length > MAX_CHOICE_LENGTH)
       || typeof correctAnswerIndex !== 'number'
+      || !Number.isInteger(correctAnswerIndex)
       || correctAnswerIndex < 0
       || correctAnswerIndex >= choices.length
     ) {
@@ -80,15 +82,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'You can only ask one question every 24 hours.', alreadyAsked: true }, { status: 403 });
   }
 
-  const { data: insertedQuestion, error: insertError } = await (supabaseAdmin.from('questions') as any).insert({
-    author_id: user.id,
-    text: (text as string).trim(),
-    choices: questionType === 'multiple_choice' ? (choices as string[]).map((choice) => choice.trim()) : [],
-    correct_answer_index: questionType === 'multiple_choice' ? correctAnswerIndex as number : -1,
-    question_type: questionType,
-    correct_answer: questionType === 'free_text' ? (correctAnswer as string).trim() : null,
-    is_public: Boolean(isPublic),
-  }).select('id, text, choices, question_type').single();
+  const { data: insertedQuestion, error: insertError } = await createQuestionWithSecret({
+    p_author_id: user.id,
+    p_text: text.trim(),
+    p_choices: questionType === 'multiple_choice' ? (choices as string[]).map((choice) => choice.trim()) : [],
+    p_question_type: questionType as 'multiple_choice' | 'free_text',
+    p_is_public: Boolean(isPublic),
+    p_correct_answer_index: questionType === 'multiple_choice' ? correctAnswerIndex as number : null,
+    p_correct_answer: questionType === 'free_text' ? (correctAnswer as string).trim() : null,
+  });
 
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });

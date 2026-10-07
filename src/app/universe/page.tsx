@@ -1,9 +1,8 @@
 import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { requireAskedToday } from '@/lib/daily-question-gate';
+import { getDailyQuestionGate, requireAskedToday } from '@/lib/daily-question-gate';
 import ProfileButton from '@/components/profile-button';
 import UsernameJump from '@/components/username-jump';
-import type { Database } from '@/lib/database.types';
 
 const UNIVERSE_PAGE_SIZE = 24;
 
@@ -14,7 +13,20 @@ type Props = {
 };
 
 export default async function UniversePage({ searchParams }: Props) {
-  // Off limits until today's question has been asked.
+  // Authorize before reading the directory: hiding cards client-side would still leak the payload.
+  const { userId } = await getDailyQuestionGate();
+  if (!userId) {
+    return (
+      <section className="mx-auto max-w-xl space-y-4 pt-12">
+        <p className="eyebrow">The social trivia club</p>
+        <h1 className="text-3xl font-bold tracking-tight text-zinc-100">Universe</h1>
+        <p className="text-zinc-400">Sign in to see the full list of public users on the app.</p>
+        <Link href="/" className="button button-primary">Sign in</Link>
+      </section>
+    );
+  }
+
+  // Signed-in members still need to ask today's question before browsing.
   await requireAskedToday();
 
   const { page } = await searchParams;

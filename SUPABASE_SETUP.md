@@ -32,6 +32,10 @@ The app builds its sign-in redirect from `window.location.origin`, so every orig
 
 ## 3) Create the database tables and policies
 
+For a **fresh project**, run the setup SQL below, including the server-only creation function further down. It represents the final P0 schema.
+
+For an **existing deployment**, use the staged rollout in [P0_ROLLOUT.md](P0_ROLLOUT.md). Do not re-run the fresh setup or apply both P0 migrations automatically.
+
 Run the following SQL in Supabase SQL Editor:
 
 ```sql
@@ -62,9 +66,20 @@ create table if not exists questions (
   author_id uuid not null references profiles(id) on delete cascade,
   text text not null,
   choices text[] not null,
-  correct_answer_index int not null,
+  question_type text not null default 'multiple_choice',
   is_public boolean not null default true,
   created_at timestamptz not null default now()
+);
+
+-- Keys never belong on browser-readable question rows.
+create table if not exists question_secrets (
+  question_id uuid primary key references questions(id) on delete cascade,
+  correct_answer_index int,
+  correct_answer text,
+  constraint question_secrets_one_key check (
+    (correct_answer_index is not null and correct_answer_index >= 0 and correct_answer is null)
+    or (correct_answer_index is null and correct_answer is not null and length(btrim(correct_answer)) > 0)
+  )
 );
 
 -- answers table
@@ -72,7 +87,8 @@ create table if not exists answers (
   id uuid primary key default uuid_generate_v4(),
   question_id uuid not null references questions(id) on delete cascade,
   responder_id uuid not null references profiles(id) on delete cascade,
-  selected_choice_index int not null,
+  selected_choice_index int,
+  answer_text text,
   is_correct boolean not null,
   created_at timestamptz not null default now(),
   unique (question_id, responder_id)
@@ -99,14 +115,9 @@ create table if not exists question_reports (
 create index if not exists question_reports_question_id_idx on question_reports (question_id);
 ```
 
-If the base tables already exist, run this additive migration once before using free-text questions and twiddloo:
+Seed twiddloo and its initial relationships (safe to run again):
 
 ```sql
-alter table questions add column if not exists question_type text not null default 'multiple_choice';
-alter table questions add column if not exists correct_answer text;
-alter table answers add column if not exists answer_text text;
-alter table answers alter column selected_choice_index drop not null;
-
 insert into profiles (id, email, username, display_name, bio, is_public)
 values ('00000000-0000-4000-8000-000000000001', 'twiddloo@twiddl.local', 'twiddloo', 'twiddloo', 'An automated trivia companion.', true)
 on conflict (id) do update set is_public = true;
@@ -231,6 +242,7 @@ Enable row-level security and add the policies required by browser/server client
 alter table profiles enable row level security;
 alter table follows enable row level security;
 alter table questions enable row level security;
+alter table question_secrets enable row level security;
 alter table answers enable row level security;
 alter table bot_follow_opt_outs enable row level security;
 alter table question_reports enable row level security;
@@ -249,17 +261,94 @@ create policy "Users can delete their follows"
 
 create policy "Questions are readable"
   on questions for select using (is_public = true or auth.uid() = author_id);
-create policy "Users can create their own questions"
-  on questions for insert with check (auth.uid() = author_id);
 
 create policy "Answers are readable by participants"
   on answers for select using (
     auth.uid() = responder_id or
     exists (select 1 from questions where questions.id = answers.question_id and questions.author_id = auth.uid())
   );
-create policy "Users can create their own answers"
-  on answers for insert with check (auth.uid() = responder_id);
 ```
+
+Apply these permissions as well; RLS alone does not hide columns, and browser mutations must never bypass grading:
+
+```sql
+-- Stop every direct browser mutation (including column grants), and hide legacy keys now.
+drop policy if exists "Users can create their own questions" on public.questions;
+drop policy if exists "Users can create their own answers" on public.answers;
+alter table public.questions enable row level security;
+alter table public.answers enable row level security;
+revoke all privileges on public.questions, public.answers from public, anon, authenticated;
+do $$
+declare relation_name text; column_names text;
+begin
+  foreach relation_name in array array['questions', 'answers'] loop
+    select string_agg(quote_ident(attname), ', ') into column_names
+    from pg_attribute where attrelid = format('public.%I', relation_name)::regclass
+      and attnum > 0 and not attisdropped;
+    execute format('revoke all privileges (%s) on table public.%I from public, anon, authenticated', column_names, relation_name);
+  end loop;
+end;
+$$;
+grant select (id, author_id, text, choices, question_type, is_public, created_at)
+  on public.questions to anon, authenticated;
+grant select on public.answers to anon, authenticated;
+grant all privileges on public.questions, public.answers to service_role;
+
+alter table public.question_secrets enable row level security;
+revoke all privileges on public.question_secrets from public, anon, authenticated;
+grant all privileges on public.question_secrets to service_role;
+```
+
+Create the server-only question operation (required by both the question API and twiddloo):
+
+```sql
+-- A single transaction persists the public question and private key, with no orphan on failure.
+-- SECURITY INVOKER: only service_role has EXECUTE and the required table permissions.
+-- The rolling daily-limit race is intentionally left for P1; keep the API's existing check.
+create function public.create_question_with_secret(
+  p_author_id uuid, p_text text, p_choices text[], p_question_type text,
+  p_is_public boolean, p_correct_answer_index int, p_correct_answer text
+) returns jsonb language plpgsql security invoker set search_path = public, pg_temp as $$
+declare created public.questions;
+begin
+  if p_question_type is null or p_question_type not in ('multiple_choice', 'free_text')
+    or p_text is null or length(btrim(p_text)) not between 1 and 320
+    or p_is_public is null or p_choices is null then
+    raise exception 'Invalid question.' using errcode = '22023';
+  end if;
+  if p_question_type = 'multiple_choice' then
+    if cardinality(p_choices) not between 2 and 4 or p_correct_answer_index is null
+      or p_correct_answer_index < 0 or p_correct_answer_index >= cardinality(p_choices)
+      or p_correct_answer is not null
+      or exists (select 1 from unnest(p_choices) choice where choice is null or length(btrim(choice)) not between 1 and 120) then
+      raise exception 'Invalid multiple-choice answer key.' using errcode = '22023';
+    end if;
+  elsif cardinality(p_choices) <> 0 or p_correct_answer_index is not null
+    or p_correct_answer is null or length(btrim(p_correct_answer)) not between 1 and 160 then
+    raise exception 'Invalid free-text answer key.' using errcode = '22023';
+  end if;
+
+  insert into public.questions (author_id, text, choices, question_type, is_public)
+  values (p_author_id, btrim(p_text), p_choices, p_question_type, p_is_public)
+  returning * into created;
+  insert into public.question_secrets (question_id, correct_answer_index, correct_answer)
+  values (created.id, p_correct_answer_index, p_correct_answer)
+  on conflict (question_id) do update set
+    correct_answer_index = excluded.correct_answer_index, correct_answer = excluded.correct_answer;
+  -- An allowlist also keeps legacy keys out of the RPC response during PREPARE.
+  return jsonb_build_object('id', created.id, 'author_id', created.author_id, 'text', created.text,
+    'choices', created.choices, 'question_type', created.question_type,
+    'is_public', created.is_public, 'created_at', created.created_at);
+end;
+$$;
+revoke all on function public.create_question_with_secret(uuid, text, text[], text, boolean, int, text)
+  from public, anon, authenticated;
+grant execute on function public.create_question_with_secret(uuid, text, text[], text, boolean, int, text)
+  to service_role;
+notify pgrst, 'reload schema';
+```
+
+No browser policies are added for `question_secrets`: keys are read only by trusted server code. The creation function saves the public row and key in one transaction and returns only safe columns. Daily-limit concurrency enforcement is a separate P1 change.
 
 No policies are added for `question_reports` on purpose. The table is written only by the report API route and read only for the question's author, both through the service-role client, so no browser or session client should touch it at all.
 
@@ -321,7 +410,8 @@ insert into profiles (email, username, display_name, bio, is_public) values
 
 - Keep `SUPABASE_SERVICE_ROLE_KEY` server-only.
 - Do not commit `.env.local`.
-- Apply database constraints and policies in Supabase before deploying.
+- Existing deployments: apply P0 PREPARE, deploy the P0 code, smoke-test, then apply CLEANUP. See `P0_ROLLOUT.md`.
+- Never expose `question_secrets` or re-grant browser writes to `questions`/`answers`. Answer results reveal keys only after a successfully persisted answer (or to the question author).
 - The `answers` table has a unique `(question_id, responder_id)` constraint so a user can answer each question only once.
 - Handles and public names are unique, ignoring case, enforced by the `profiles_username_lower_key` index and the `profiles_identity_unique` trigger.
 - Authors delete their own questions through the service-role client. The `questions` table has no `delete` policy, so no browser or session client can remove rows directly, and `answers` and `question_reports` follow their question away through `on delete cascade`.
