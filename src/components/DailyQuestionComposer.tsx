@@ -369,26 +369,6 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">
-            <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-zinc-200">Twiddl Assist</p>
-                  <p className="mt-1 text-xs text-zinc-400">Optional guidance to make the question more fun to solve.</p>
-                </div>
-                <AssistToggle
-                  pressed={coachingEnabled}
-                  onToggle={() => setCoachingEnabled((value) => !value)}
-                  label="Question coaching"
-                />
-              </div>
-
-              {coachingEnabled ? (
-                <p className="text-xs text-amber-300/90">
-                  Twiddl Assist can occasionally get things wrong. Please check the question and the correct answer yourself before posting.
-                </p>
-              ) : null}
-            </div>
-
             <fieldset className="space-y-3">
               <legend className="text-sm font-medium text-zinc-300">Question type</legend>
               <label className="flex items-center gap-2">
@@ -470,6 +450,31 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
                 <span className="mt-1 block text-xs text-zinc-500">Separate accepted aliases with commas. There is also some inbuilt smart matching that will on a best effort accommodate things like abbreviations, minor typos, punctuation, etc.</span>
               </label>
             )}
+
+            {/*
+              Twiddl Assist sits with the inputs it reviews: below the answer choices (or the
+              free-text answer box) and above the cards it produces, so the toggle never pushes
+              the submit button off the bottom of the form.
+            */}
+            <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-zinc-200">Twiddl Assist</p>
+                  <p className="mt-1 text-xs text-zinc-400">Optional guidance to make the question more fun to solve.</p>
+                </div>
+                <AssistToggle
+                  pressed={coachingEnabled}
+                  onToggle={() => setCoachingEnabled((value) => !value)}
+                  label="Question coaching"
+                />
+              </div>
+
+              {coachingEnabled ? (
+                <p className="text-xs text-amber-300/90">
+                  Twiddl Assist can occasionally get things wrong. Please check the question and the correct answer yourself before posting.
+                </p>
+              ) : null}
+            </div>
 
             {aiAssistReview && aiAssistReview.assessment === 'NEEDS_REFRAME' && aiAssistReview.suggestedQuestion ? (
               <div className="rounded-2xl border border-violet-500/40 bg-violet-500/10 p-4 text-sm text-violet-100">

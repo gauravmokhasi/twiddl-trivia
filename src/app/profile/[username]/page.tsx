@@ -241,7 +241,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
           )}
         </div>
 
-        <div className="card p-5">
+        <div id="followers" className="card p-5 scroll-mt-24">
           <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Followers</h3><span className="text-sm text-zinc-500">{followers?.length ?? 0}</span></div>
           {!followers || followers.length === 0 ? (
             <p className="mt-4 text-slate-700">No one is following this user yet.</p>

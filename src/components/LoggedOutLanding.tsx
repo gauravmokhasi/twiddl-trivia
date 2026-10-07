@@ -78,7 +78,7 @@ export default function LoggedOutLanding() {
         </div>
 
         <div className="animate-float-slow mt-5 hidden max-w-xs rounded-2xl border border-white/[0.08] bg-[#151519] p-4 shadow-xl sm:block">
-          <p className="text-xs font-semibold text-violet-300">@maya asked</p>
+          <p className="text-xs font-semibold text-violet-300">@raya asked</p>
           <p className="mt-1.5 text-sm text-zinc-300">This physicist&apos;s cat is famously both alive and dead in a thought experiment.</p>
           <p className="mt-3 text-xs font-semibold text-emerald-300">✓ Correct</p>
         </div>

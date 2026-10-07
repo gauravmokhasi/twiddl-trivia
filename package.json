@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsx --test src/lib/pulse.test.ts src/lib/profile-identity.test.ts src/lib/question-choices.test.ts src/lib/question-deletion.test.ts src/lib/question-reports.test.ts src/lib/twiddl-assist.test.ts"
+    "test": "tsx --test src/lib/pulse.test.ts src/lib/profile-identity.test.ts src/lib/question-choices.test.ts src/lib/question-deletion.test.ts src/lib/question-reports.test.ts src/lib/twiddl-assist.test.ts src/lib/notifications.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

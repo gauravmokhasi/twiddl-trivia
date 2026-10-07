@@ -6,6 +6,7 @@
 - `/login` - Supabase email authentication
 - `/ask` - Create a multiple-choice or free-text question (hideable guidance panel, Twiddl Assist review, quiet accuracy spot-check, then redirect to the feed)
 - `/universe` - Discover public profiles (24 per page)
+- `/notifications` - Daily digest of answers, question reports, and new followers, grouped by day
 - `/profile` - Redirect to the signed-in user's profile or request a username
 - `/profile/[username]` - Profile, privacy control, history, followers, following, correct-answer count, owner-only accuracy-check toggle, paged past-question archive (20 per page), plus delete controls on your own past questions
 - `/questions/[id]` - Question details, answer form, fuzzy free-text grading, author-only answer summary, author-only question-quality reports, and an author delete control

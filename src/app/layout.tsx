@@ -6,6 +6,7 @@ import AuthStatus from '@/components/AuthStatus';
 import ProfileSync from '@/components/ProfileSync';
 import NavLinks from '@/components/NavLinks';
 import { getDailyQuestionGate } from '@/lib/daily-question-gate';
+import { digestLatestAt, loadNotificationDigest } from '@/lib/notifications-server';
 
 export const metadata: Metadata = {
   title: 'Twiddl Trivia',
@@ -14,7 +15,18 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Members who have not asked today are kept on the feed, so the header links render inert for them.
-  const { locked } = await getDailyQuestionGate();
+  const { locked, userId } = await getDailyQuestionGate();
+
+  // One lightweight digest load for the nav dot only; the page itself loads
+  // the full digest. Signed-out visitors and failures simply show no dot.
+  let notificationsLatestAt: string | null = null;
+  if (userId && !locked) {
+    try {
+      notificationsLatestAt = digestLatestAt(await loadNotificationDigest(userId));
+    } catch {
+      notificationsLatestAt = null;
+    }
+  }
 
   return (
     <html lang="en">
@@ -35,7 +47,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <AuthStatus />
                 </div>
                 <nav className="flex items-center gap-1 rounded-xl bg-white/[0.03] p-1 text-sm font-semibold text-zinc-500">
-                  <NavLinks locked={locked} />
+                  <NavLinks locked={locked} notificationsLatestAt={notificationsLatestAt} />
                 </nav>
               </div>
             </header>
