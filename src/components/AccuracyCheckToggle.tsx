@@ -11,10 +11,12 @@ import {
  * on: turning the check off from an accuracy card can only be undone here.
  */
 export default function AccuracyCheckToggle() {
-  const [enabled, setEnabled] = useState<boolean>(getStoredFactCheckPreference);
+  // localStorage is client-only, so lazy-init from storage: the initializer
+  // runs only on the client, keeping SSR on the default instead of
+  // mismatching a stored "off".
+  const [enabled, setEnabled] = useState<boolean>(() => getStoredFactCheckPreference());
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     try {
       window.localStorage.setItem(FACT_CHECK_STORAGE_KEY, String(enabled));
     } catch {

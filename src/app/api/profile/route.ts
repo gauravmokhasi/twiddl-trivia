@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createRouteSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthenticatedUser } from '@/lib/auth-server';
+import { readJsonBody } from '@/lib/api-guards';
 import { findProfileIdentityConflict } from '@/lib/profile-identity-server';
 import { PROFILE_IDENTITY_CONFLICT_MESSAGE, isIdentityConflictError } from '@/lib/profile-identity';
 
@@ -8,8 +9,11 @@ const MAX_DISPLAY_NAME = 40;
 const MAX_BYLINE = 160;
 
 export async function PATCH(request: Request) {
-  const body = await request.json();
-  const { displayName, bio } = body;
+  const body = await readJsonBody(request);
+  if (!body) {
+    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+  }
+  const { displayName, bio } = body as { displayName?: unknown; bio?: unknown };
 
   if (typeof displayName !== 'string' || !displayName.trim()) {
     return NextResponse.json({ error: 'A public name is required.' }, { status: 400 });
@@ -30,16 +34,15 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: `Byline must be ${MAX_BYLINE} characters or fewer.` }, { status: 400 });
   }
 
-  const routeSupabase = await createRouteSupabase();
-  const { data: { session }, error: authError } = await routeSupabase.auth.getSession();
+  const user = await getAuthenticatedUser();
 
-  if (authError || !session?.user?.id) {
-    return NextResponse.json({ error: authError?.message || 'Authentication required.' }, { status: 401 });
+  if (!user?.id) {
+    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
   }
 
   // The public name shares one namespace with usernames, so it is checked against both, ignoring
   // case. The trigger on profiles remains the authority; this is the friendly early answer.
-  const conflict = await findProfileIdentityConflict(session.user.id, { displayName: safeDisplayName });
+  const conflict = await findProfileIdentityConflict(user.id, { displayName: safeDisplayName });
 
   if (conflict) {
     return NextResponse.json({ error: conflict }, { status: 409 });
@@ -49,7 +52,7 @@ export async function PATCH(request: Request) {
   const { error } = await ((supabaseAdmin
     .from('profiles') as any)
     .update({ display_name: safeDisplayName, bio: safeBio || null })
-    .eq('id', session.user.id) as any);
+    .eq('id', user.id) as any);
 
   if (error) {
     // A race between the check above and this update lands here.

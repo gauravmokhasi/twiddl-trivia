@@ -1,22 +1,36 @@
 import Link from 'next/link';
-import { createServerSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { requireAskedToday } from '@/lib/daily-question-gate';
 import ProfileButton from '@/components/profile-button';
 import UsernameJump from '@/components/username-jump';
 import type { Database } from '@/lib/database.types';
 
-export default async function UniversePage() {
+const UNIVERSE_PAGE_SIZE = 24;
+
+type Props = {
+  searchParams: Promise<{
+    page?: string;
+  }>;
+};
+
+export default async function UniversePage({ searchParams }: Props) {
   // Off limits until today's question has been asked.
   await requireAskedToday();
 
-  const supabase = await createServerSupabase();
-  const { data: publicUsersData } = await supabaseAdmin
+  const { page } = await searchParams;
+  const currentPage = Math.max(1, Number.parseInt(page ?? '1', 10) || 1);
+  const from = (currentPage - 1) * UNIVERSE_PAGE_SIZE;
+  const to = from + UNIVERSE_PAGE_SIZE - 1;
+
+  const { data: publicUsersData, count } = await supabaseAdmin
     .from('profiles')
-    .select('id, username, display_name, bio')
+    .select('id, username, display_name, bio', { count: 'exact' })
     .eq('is_public', true)
-    .order('username');
+    .order('username')
+    .range(from, to);
   const publicUsers = publicUsersData as { id: string; username: string; display_name: string | null; bio: string | null }[] | null;
+
+  const totalPages = Math.max(1, Math.ceil((count ?? 0) / UNIVERSE_PAGE_SIZE));
 
   return (
     <div className="space-y-8 pt-6">
@@ -53,6 +67,22 @@ export default async function UniversePage() {
           </article>
         ))}
       </section>
+
+      {totalPages > 1 ? (
+        <nav className="flex items-center justify-center gap-3 pt-2" aria-label="Universe pages">
+          {currentPage > 1 ? (
+            <Link href={currentPage === 2 ? '/universe' : `/universe?page=${currentPage - 1}`} className="button button-secondary text-sm">
+              ← Newer
+            </Link>
+          ) : null}
+          <span className="text-sm text-zinc-500">Page {Math.min(currentPage, totalPages)} of {totalPages}</span>
+          {currentPage < totalPages ? (
+            <Link href={`/universe?page=${currentPage + 1}`} className="button button-secondary text-sm">
+              Older →
+            </Link>
+          ) : null}
+        </nav>
+      ) : null}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { splitAcceptedAnswers } from '@/lib/answer-checker';
-import { GROQ_MODEL, describeGroqFailure, getGroqClient } from '@/lib/groq-client';
+import { GROQ_MODEL, describeGroqFailure, getGroqClient, groqChatCompletion } from '@/lib/groq-client';
 import { buildGuidanceBrief } from '@/lib/question-guidance';
 
 export type AiAssistAssessment = 'GOOD' | 'OKAY' | 'NEEDS_REFRAME';
@@ -203,7 +203,7 @@ export async function reviewQuestionForAiAssist({
   ].join('\n');
 
   try {
-    const completion = await client.chat.completions.create({
+    const completion = await groqChatCompletion(client, {
       model: GROQ_MODEL,
       messages: [
         { role: 'system', content: AI_ASSIST_SYSTEM_PROMPT },
@@ -313,7 +313,7 @@ export async function checkQuestionAccuracy({
   try {
     // json_object plus strict coercion rather than json_schema: this model intermittently rejects its
     // own strict schemas, and the same shape is enforced in code below anyway.
-    const completion = await client.chat.completions.create({
+    const completion = await groqChatCompletion(client, {
       model: GROQ_MODEL,
       messages: [
         { role: 'system', content: ACCURACY_SYSTEM_PROMPT },

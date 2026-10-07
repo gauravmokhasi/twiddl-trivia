@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createRouteSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthenticatedUser } from '@/lib/auth-server';
+import { readJsonBody } from '@/lib/api-guards';
 import { isReportReason } from '@/lib/question-reports';
 import type { Database } from '@/lib/database.types';
 
@@ -13,8 +14,15 @@ import type { Database } from '@/lib/database.types';
  */
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { questionId, reason, anonymous } = body ?? {};
+    const body = await readJsonBody(request);
+    if (!body) {
+      return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+    }
+    const { questionId, reason, anonymous } = body as {
+      questionId?: unknown;
+      reason?: unknown;
+      anonymous?: unknown;
+    };
 
     if (typeof questionId !== 'string' || !questionId.trim()) {
       return NextResponse.json({ error: 'Question id is required.' }, { status: 400 });
@@ -24,14 +32,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'That reason is not recognised.' }, { status: 400 });
     }
 
-    const supabase = await createRouteSupabase();
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    const user = await getAuthenticatedUser();
 
-    if (sessionError || !session?.user?.id) {
+    if (!user?.id) {
       return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
     }
 
-    const reporterId = session.user.id;
+    const reporterId = user.id;
 
     const { data: questionData, error: questionError } = await supabaseAdmin
       .from('questions')

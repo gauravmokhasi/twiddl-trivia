@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { createServerSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthenticatedServerUser } from '@/lib/auth-server';
 import { requireAskedToday } from '@/lib/daily-question-gate';
 import UsernamePrompt from '@/components/UsernamePrompt';
 
@@ -9,10 +9,9 @@ export default async function MyProfilePage() {
   // Off limits until today's question has been asked. Signed-out visitors fall through unchanged.
   await requireAskedToday();
 
-  const supabase = await createServerSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
+  const user = await getAuthenticatedServerUser();
 
-  if (!session?.user?.id) {
+  if (!user?.id) {
     return (
       <div className="space-y-6">
         <section className="card">
@@ -26,7 +25,7 @@ export default async function MyProfilePage() {
     );
   }
 
-  const userId = session.user.id;
+  const userId = user.id;
   const { data: profileData, error: profileError } = await supabaseAdmin
     .from('profiles')
     .select('username, display_name')

@@ -130,6 +130,19 @@ export interface Database {
           created_at?: string;
         };
       };
+      bot_follow_opt_outs: {
+        Row: {
+          user_id: string;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          created_at?: string;
+        };
+        Update: {
+          created_at?: string;
+        };
+      };
     };
     Views: {};
     Functions: {};

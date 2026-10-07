@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "tsx --test src/lib/pulse.test.ts src/lib/profile-identity.test.ts src/lib/question-choices.test.ts src/lib/question-deletion.test.ts src/lib/question-reports.test.ts src/lib/twiddl-assist.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
@@ -25,6 +26,7 @@
     "eslint-config-next": "16.3.4",
     "postcss": "^8.5.26",
     "tailwindcss": "3.4.4",
+    "tsx": "^4.19.0",
     "typescript": "5.6.2"
   }
 }

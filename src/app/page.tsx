@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
-import { createServerSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthenticatedServerUser } from '@/lib/auth-server';
 import { getDailyQuestionStatus, DAILY_QUESTION_WINDOW_MS } from '@/lib/daily-question';
 import { unansweredSessionQuestions } from '@/lib/session-questions';
 import { exchangeAuthCode } from '@/lib/auth-code';
@@ -25,17 +25,17 @@ export default async function HomePage({ searchParams }: Props) {
     }
   }
 
-  const supabase = await createServerSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
+  const user = await getAuthenticatedServerUser();
 
-  if (!session?.user?.id) {
+  if (!user?.id) {
     return <LoggedOutLanding />;
   }
 
-  const userId = session.user.id;
-  const { hasAsked } = await getDailyQuestionStatus(userId);
-
-  const { data: followeesData } = await supabaseAdmin.from('follows').select('followee_id').eq('follower_id', userId);
+  const userId = user.id;
+  const [{ hasAsked }, { data: followeesData }] = await Promise.all([
+    getDailyQuestionStatus(userId),
+    supabaseAdmin.from('follows').select('followee_id').eq('follower_id', userId),
+  ]);
   const followeeIds = (followeesData as { followee_id: string }[] | null)?.map((item) => item.followee_id) ?? [];
 
   const now = new Date();

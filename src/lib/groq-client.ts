@@ -10,6 +10,29 @@ export const GROQ_MODEL = 'openai/gpt-oss-20b';
 
 let client: Groq | null = null;
 
+/** Every Groq call races this timeout; a hang fails silent (or retries) like any other error. */
+export const GROQ_TIMEOUT_MS = 15000;
+
+/**
+ * Runs a Groq chat completion with a timeout. The groq-sdk accepts an
+ * AbortSignal via the request options, so an expired timer aborts the fetch
+ * and the caller's existing catch path handles it like any other failure.
+ */
+export async function groqChatCompletion(
+  client: Groq,
+  body: Parameters<Groq['chat']['completions']['create']>[0] & { stream?: false },
+  timeoutMs = GROQ_TIMEOUT_MS,
+) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await client.chat.completions.create(body, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Returns the shared client, or null when GROQ_API_KEY is not configured so callers can fall
  * back to their non-Groq behaviour instead of throwing.

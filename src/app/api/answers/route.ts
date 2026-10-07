@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createRouteSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthenticatedUser } from '@/lib/auth-server';
+import { MAX_ANSWER_TEXT, readJsonBody } from '@/lib/api-guards';
 import { isAnswerCorrect } from '@/lib/answer-checker';
 import type { Database } from '@/lib/database.types';
 
@@ -12,9 +13,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'questionId is required.' }, { status: 400 });
   }
 
-  const supabase = await createRouteSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user?.id) {
+  const user = await getAuthenticatedUser();
+  if (!user?.id) {
     return NextResponse.json({ hasAnswered: false });
   }
 
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     .from('answers')
     .select('id, selected_choice_index, answer_text, is_correct, question_id')
     .eq('question_id', questionId)
-    .eq('responder_id', session.user.id)
+    .eq('responder_id', user.id)
     .maybeSingle();
 
   if (error) {
@@ -56,17 +56,23 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  const { questionId, selectedChoiceIndex, answerText } = body;
-
-  if (!questionId) {
-    return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 });
+  const user = await getAuthenticatedUser();
+  if (!user?.id) {
+    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
   }
 
-  const supabase = await createRouteSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
+  const body = await readJsonBody(request);
+  if (!body) {
+    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+  }
+  const { questionId, selectedChoiceIndex, answerText } = body as {
+    questionId?: unknown;
+    selectedChoiceIndex?: unknown;
+    answerText?: unknown;
+  };
+
+  if (typeof questionId !== 'string' || !questionId) {
+    return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 });
   }
 
   const { data: questionData, error: questionError } = await supabaseAdmin
@@ -87,7 +93,7 @@ export async function POST(request: Request) {
   }
 
   // Prevent users from answering their own questions
-  if (question.author_id === session.user.id) {
+  if (question.author_id === user.id) {
     return NextResponse.json({ error: 'You cannot answer your own question.' }, { status: 403 });
   }
 
@@ -95,15 +101,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Please select one of the answer choices.' }, { status: 400 });
   }
 
-  if (question.question_type === 'free_text' && (typeof answerText !== 'string' || !answerText.trim())) {
-    return NextResponse.json({ error: 'Please enter an answer.' }, { status: 400 });
+  if (question.question_type === 'free_text') {
+    if (typeof answerText !== 'string' || !answerText.trim() || answerText.trim().length > MAX_ANSWER_TEXT) {
+      return NextResponse.json({ error: `Please enter an answer (${MAX_ANSWER_TEXT} characters or fewer).` }, { status: 400 });
+    }
   }
 
   const { data: existingAnswerData } = await supabaseAdmin
     .from('answers')
     .select('id, selected_choice_index, is_correct')
     .eq('question_id', questionId)
-    .eq('responder_id', session.user.id)
+    .eq('responder_id', user.id)
     .maybeSingle();
   const existingAnswer = existingAnswerData as {
     selected_choice_index: number | null;
@@ -122,13 +130,13 @@ export async function POST(request: Request) {
   }
 
   const isCorrect = question.question_type === 'free_text'
-    ? isAnswerCorrect(answerText.trim(), question.correct_answer ?? '')
+    ? isAnswerCorrect((answerText as string).trim(), question.correct_answer ?? '')
     : selectedChoiceIndex === question.correct_answer_index;
   const answerPayload = {
     question_id: questionId,
-    responder_id: session.user.id,
+    responder_id: user.id,
     selected_choice_index: question.question_type === 'multiple_choice' ? selectedChoiceIndex : null,
-    answer_text: question.question_type === 'free_text' ? answerText.trim() : null,
+    answer_text: question.question_type === 'free_text' ? (answerText as string).trim() : null,
     is_correct: isCorrect,
   } as Database['public']['Tables']['answers']['Insert'];
   const { error: insertError } = await (supabaseAdmin.from('answers') as any).insert(answerPayload);
@@ -141,7 +149,7 @@ export async function POST(request: Request) {
     hasAnswered: true,
     isCorrect,
     selectedChoiceIndex: question.question_type === 'multiple_choice' ? selectedChoiceIndex : null,
-    answerText: question.question_type === 'free_text' ? answerText.trim() : null,
+    answerText: question.question_type === 'free_text' ? (answerText as string).trim() : null,
     correctAnswerIndex: question.correct_answer_index,
   });
 }

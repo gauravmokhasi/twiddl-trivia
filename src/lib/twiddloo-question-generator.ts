@@ -1,4 +1,4 @@
-import { GROQ_MODEL, describeGroqFailure, getGroqClient } from '@/lib/groq-client';
+import { GROQ_MODEL, describeGroqFailure, getGroqClient, groqChatCompletion } from '@/lib/groq-client';
 import { isAnswerCorrect } from '@/lib/answer-checker';
 import { requestGroqAnswer } from '@/lib/groq-answer';
 import { QUESTION_OUTPUT_INSTRUCTIONS, buildGuidanceBrief } from '@/lib/question-guidance';
@@ -219,7 +219,7 @@ ${avoid.map((text) => `- ${text}`).join('\n')}`
     lastQuestion = '';
 
     try {
-      const completion = await client.chat.completions.create({
+      const completion = await groqChatCompletion(client, {
         model: GROQ_MODEL,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },

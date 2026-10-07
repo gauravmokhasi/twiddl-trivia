@@ -18,11 +18,15 @@ Email sign-in (magic link) is handled by Supabase Auth. Brevo is only the SMTP p
 3. Enable `Sign in with OTP` for passwordless login.
 4. Set `Authentication -> Emails -> SMTP Settings` to your Brevo credentials so Supabase delivers the sign-in emails.
 5. In Supabase, open `Authentication -> URL Configuration`:
-   - Site URL: `https://twiddl-trivia.vercel.app`
+   - Site URL: `https://twiddl-trivia-twiddl.vercel.app`
    - Redirect URLs:
-     - `https://twiddl-trivia.vercel.app/auth/callback`
+     - `https://twiddl-trivia-twiddl.vercel.app/auth/callback`
      - `http://localhost:3000/auth/callback`
      - `https://*-<your-vercel-scope>.vercel.app/auth/callback` (optional, for preview deployments)
+
+   Do not use `https://twiddl-trivia.vercel.app`: it is a stale host that serves the app without
+   sharing its login cookies, so starting a sign-in there drops you on the canonical host with a
+   dead link and forces a second sign-in. If it still resolves, redirect it to the canonical host.
 
 The app builds its sign-in redirect from `window.location.origin`, so every origin you sign in from should be listed above. If a callback URL is missing from that list Supabase falls back to the Site URL instead; the app exchanges the code there too, but listing the callback is what keeps sign-in working reliably on the first click.
 

@@ -4,10 +4,10 @@
 
 - `/` - 24-hour feed of questions from followed users
 - `/login` - Supabase email authentication
-- `/ask` - Create a multiple-choice or free-text question
-- `/universe` - Discover public profiles
+- `/ask` - Create a multiple-choice or free-text question (hideable guidance panel, Twiddl Assist review, quiet accuracy spot-check, then redirect to the feed)
+- `/universe` - Discover public profiles (24 per page)
 - `/profile` - Redirect to the signed-in user's profile or request a username
-- `/profile/[username]` - Profile, privacy control, history, followers, following, and correct-answer count, plus delete controls on your own past questions
+- `/profile/[username]` - Profile, privacy control, history, followers, following, correct-answer count, owner-only accuracy-check toggle, paged past-question archive (20 per page), plus delete controls on your own past questions
 - `/questions/[id]` - Question details, answer form, fuzzy free-text grading, author-only answer summary, author-only question-quality reports, and an author delete control
 
 ## Question quality reports
@@ -42,15 +42,15 @@
 
 ## API routes
 
-- `/api/auth` - Authentication support
 - `/api/profile-sync` - Create or preserve the signed-in user's profile
 - `/api/username` - Validate and save a unique username, checked against every handle and public name
 - `/api/profile-visibility` - Toggle profile visibility
-- `/api/follow` - Follow and unfollow users
+- `/api/profile-lookup` - Resolve a typed username (unauthenticated by design, throttled per IP)
+- `/api/follow` - Follow and unfollow users (404 for unknown profiles)
 - `/api/follow/status` - Read the current follow state
-- `/api/questions` - Create questions, and delete your own once they are a day old
-- `/api/answers` - Read or submit one answer per user per question
-- `/api/twiddl-assist` - Question coaching plus the quiet accuracy spot-check that runs before posting (off only via the accuracy card or the profile toggle)
+- `/api/questions` - Create questions (server-side size caps, per-user throttle), and delete your own once they are a day old
+- `/api/answers` - Read or submit one answer per user per question (server-side size cap)
+- `/api/twiddl-assist` - Question coaching plus the quiet accuracy spot-check that runs before posting (both default on, per-user throttle, 15s Groq timeout). Accuracy can be switched off from an accuracy card and back on from the owner-only profile toggle (`src/components/AccuracyCheckToggle.tsx`, shared localStorage keys in `src/lib/twiddl-assist-preferences.ts`)
 - `/api/question-reports` - Record a quality report from someone who answered a question incorrectly
 - `/api/cron/twiddloo` - Daily twiddloo question and relationship job
 
@@ -65,4 +65,13 @@
 - `src/lib/supabase-client.ts` - Browser client
 - `src/lib/supabase-server.ts` - Session-aware server and route clients
 - `src/lib/supabase-admin.ts` - Server-only service-role client
-- `src/lib/database.types.ts` - Database TypeScript definitions
+- `src/lib/database.types.ts` - Database TypeScript definitions (includes `bot_follow_opt_outs`)
+- `src/lib/auth-server.ts` - Verified server auth (`getUser`, not `getSession`) for routes and pages
+- `src/lib/api-guards.ts` - Safe JSON body parsing plus shared server-side input limits
+- `src/lib/rate-limit.ts` - In-memory per-key throttling (single-instance; use a shared store for multi-instance prod)
+- `src/lib/groq-client.ts` - Shared Groq client plus `groqChatCompletion` (15s timeout on every call)
+
+## Useful commands
+
+- `npm run dev` / `npm run build` / `npm run lint`
+- `npm test` - Unit suites via `tsx --test` (pulse, identity, choices, deletion, reports, twiddl-assist)

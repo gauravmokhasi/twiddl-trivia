@@ -56,13 +56,15 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
   const [correctAnswer, setCorrectAnswer] = useState('');
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [guidanceVisible, setGuidanceVisible] = useState<boolean>(getStoredGuidancePreference);
-  const [coachingEnabled, setCoachingEnabled] = useState<boolean>(getStoredCoachingPreference);
+  // localStorage is client-only: lazy initializers run only on the client, so
+  // SSR keeps the defaults and never mismatches a persisted "hidden"/"off".
+  const [guidanceVisible, setGuidanceVisible] = useState<boolean>(() => getStoredGuidancePreference());
+  const [coachingEnabled, setCoachingEnabled] = useState<boolean>(() => getStoredCoachingPreference());
   const [aiAssistReview, setAiAssistReview] = useState<AiAssistResult | null>(null);
   // No toggle on this screen by design: the check runs quietly unless it is
   // confident, and is only ever switched off from an accuracy card or the
   // profile page. Defaults on; the profile toggle writes the same key.
-  const [factCheckEnabled, setFactCheckEnabled] = useState<boolean>(getStoredFactCheckPreference);
+  const [factCheckEnabled, setFactCheckEnabled] = useState<boolean>(() => getStoredFactCheckPreference());
   const [accuracyConcern, setAccuracyConcern] = useState<AiAssistAccuracyConcern | null>(null);
   const [accuracyDismissed, setAccuracyDismissed] = useState(false);
   // Twiddl Assist is deliberately a single pass per question: once it has reviewed, later edits
@@ -70,7 +72,6 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
   const [hasRunAiAssist, setHasRunAiAssist] = useState(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     try {
       window.localStorage.setItem(COACHING_STORAGE_KEY, String(coachingEnabled));
     } catch {
@@ -83,7 +84,6 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
   }, [factCheckEnabled]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     try {
       window.localStorage.setItem(GUIDANCE_STORAGE_KEY, guidanceVisible ? 'visible' : 'hidden');
     } catch {

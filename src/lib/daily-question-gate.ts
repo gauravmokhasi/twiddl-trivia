@@ -1,6 +1,6 @@
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
-import { createServerSupabase } from './supabase-server';
+import { getAuthenticatedServerUser } from './auth-server';
 import { getDailyQuestionStatus } from './daily-question';
 
 export type DailyQuestionGate = {
@@ -15,21 +15,20 @@ export type DailyQuestionGate = {
  * Signed-out visitors are never locked here, so the existing public and sign-in behaviour is intact.
  */
 export const getDailyQuestionGate = cache(async (): Promise<DailyQuestionGate> => {
-  const supabase = await createServerSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
+  const user = await getAuthenticatedServerUser();
 
-  if (!session?.user?.id) {
+  if (!user?.id) {
     return { userId: null, locked: false };
   }
 
-  const { hasAsked, error } = await getDailyQuestionStatus(session.user.id);
+  const { hasAsked, error } = await getDailyQuestionStatus(user.id);
 
   // Fail open on a database error: a blip should never lock a member out of the whole app.
   if (error) {
-    return { userId: session.user.id, locked: false };
+    return { userId: user.id, locked: false };
   }
 
-  return { userId: session.user.id, locked: !hasAsked };
+  return { userId: user.id, locked: !hasAsked };
 });
 
 /**

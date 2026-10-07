@@ -3,8 +3,8 @@ import { notFound } from 'next/navigation';
 import { formatRelativeDate } from '@/lib/utils';
 import QuestionAnswerForm from '@/components/QuestionAnswerForm';
 import DeleteQuestionButton from '@/components/DeleteQuestionButton';
-import { createServerSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthenticatedServerUser } from '@/lib/auth-server';
 import { requireAskedToday } from '@/lib/daily-question-gate';
 import { EMPTY_REPORT_SUMMARY, REPORT_REASON_LABELS, describeReportCount } from '@/lib/question-reports';
 import { loadQuestionReportSummary } from '@/lib/question-reports-server';
@@ -20,10 +20,9 @@ export default async function QuestionPage({ params }: Props) {
   // Off limits until today's question has been asked. Signed-out visitors fall through unchanged.
   await requireAskedToday();
 
-  const supabase = await createServerSupabase();
   const { id } = await params;
-  const { data: { session } } = await supabase.auth.getSession();
-  const currentUserId = session?.user?.id;
+  const viewer = await getAuthenticatedServerUser();
+  const currentUserId = viewer?.id;
 
   const { data: questionData, error: questionError } = await supabaseAdmin
     .from('questions')
@@ -46,18 +45,19 @@ export default async function QuestionPage({ params }: Props) {
     notFound();
   }
 
-  const { data: authorData } = await supabaseAdmin
-    .from('profiles')
-    .select('id, username, display_name')
-    .eq('id', question.author_id)
-    .single();
+  const [{ data: authorData }, { data: answerRowsData }] = await Promise.all([
+    supabaseAdmin
+      .from('profiles')
+      .select('id, username, display_name')
+      .eq('id', question.author_id)
+      .single(),
+    supabaseAdmin
+      .from('answers')
+      .select('id, responder_id, selected_choice_index, answer_text, is_correct, created_at')
+      .eq('question_id', question.id)
+      .order('created_at', { ascending: true }),
+  ]);
   const author = authorData as { id: string; username: string; display_name: string | null } | null;
-
-  const { data: answerRowsData } = await supabaseAdmin
-    .from('answers')
-    .select('id, responder_id, selected_choice_index, answer_text, is_correct, created_at')
-    .eq('question_id', question.id)
-    .order('created_at', { ascending: true });
   const answerRows = answerRowsData as {
     id: string;
     responder_id: string;

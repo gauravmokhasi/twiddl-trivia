@@ -30,5 +30,5 @@ export default function HomeFlow({ hasAskedToday, questions }: Props) {
     return <DailyQuestionComposer onAsked={handleAsked} />;
   }
 
-  return <TriviaSession questions={questions} />;
+  return <TriviaSession key={questions.map((question) => question.id).join(',')} questions={questions} />;
 }

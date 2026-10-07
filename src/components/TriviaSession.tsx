@@ -40,6 +40,8 @@ type Phase = 'fresh' | 'second' | 'done';
 
 export default function TriviaSession({ questions, headerLabel = "Today's twiddl", endState }: Props) {
   const [phase, setPhase] = useState<Phase>(questions.length > 0 ? 'fresh' : 'done');
+  // The plan snapshots the queue at mount; callers pass a key derived from
+  // the question ids so a new list remounts instead of showing stale state.
   const [plan, setPlan] = useState<string[]>(() => questions.map((question) => question.id));
   const [cursor, setCursor] = useState(0);
   const [passedIds, setPassedIds] = useState<string[]>([]);

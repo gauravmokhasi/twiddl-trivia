@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import AuthCard from '@/components/AuthCard';
-import { createServerSupabase } from '@/lib/supabase-server';
+import { getAuthenticatedServerUser } from '@/lib/auth-server';
 import { exchangeAuthCode } from '@/lib/auth-code';
 import { AUTH_CALLBACK_FAILED_MESSAGE } from '@/lib/auth-messages';
 
@@ -28,17 +28,16 @@ export default async function LoginPage({ searchParams }: Props) {
   const message = error === 'auth' ? AUTH_CALLBACK_FAILED_MESSAGE : undefined;
 
   // Decided on the server so an already-signed-in visitor never sees the sign-in form flash.
-  const supabase = await createServerSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
+  const user = await getAuthenticatedServerUser();
 
-  if (session?.user?.id) {
+  if (user?.id) {
     return (
       <div className="mx-auto max-w-lg pt-6">
         <section className="card p-6 md:p-8">
           <p className="eyebrow">Already signed in</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-zinc-100">You are signed in</h1>
           <p className="mt-2 text-zinc-400">
-            Signed in as <span className="text-zinc-200">{session.user.email ?? 'your account'}</span>. Head back to your feed, or use Sign out in the header to switch accounts.
+            Signed in as <span className="text-zinc-200">{user.email ?? 'your account'}</span>. Head back to your feed, or use Sign out in the header to switch accounts.
           </p>
           <Link className="button button-primary mt-5" href="/">Go to your feed</Link>
         </section>

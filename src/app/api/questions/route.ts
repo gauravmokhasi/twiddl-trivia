@@ -1,33 +1,74 @@
 import { NextResponse } from 'next/server';
-import { createRouteSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthenticatedUser } from '@/lib/auth-server';
+import {
+  MAX_ANSWER_LENGTH,
+  MAX_CHOICES,
+  MAX_CHOICE_LENGTH,
+  MAX_QUESTION_TEXT,
+  readJsonBody,
+} from '@/lib/api-guards';
+import { rateLimit } from '@/lib/rate-limit';
 import { answerQuestionAsTwiddloo, ensureTwiddloo } from '@/lib/twiddloo';
 import { getDailyQuestionStatus } from '@/lib/daily-question';
 import { canDeleteQuestion } from '@/lib/question-deletion';
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  const { text, questionType = 'multiple_choice', choices = [], correctAnswerIndex = -1, correctAnswer, isPublic } = body;
-
-  if (!text || !['multiple_choice', 'free_text'].includes(questionType)) {
-    return NextResponse.json({ error: 'Missing question fields.' }, { status: 400 });
-  }
-
-  if (questionType === 'multiple_choice' && (!Array.isArray(choices) || choices.length < 2 || correctAnswerIndex < 0 || correctAnswerIndex >= choices.length)) {
-    return NextResponse.json({ error: 'Multiple-choice questions need at least two choices and a valid correct answer.' }, { status: 400 });
-  }
-
-  if (questionType === 'free_text' && (typeof correctAnswer !== 'string' || !correctAnswer.trim())) {
-    return NextResponse.json({ error: 'Free-text questions need a correct answer.' }, { status: 400 });
-  }
-
-  const supabase = await createRouteSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user?.id) {
+  const user = await getAuthenticatedUser();
+  if (!user?.id) {
     return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
   }
 
-  const { hasAsked, error: dailyQuestionError } = await getDailyQuestionStatus(session.user.id);
+  const limited = rateLimit(`questions:post:${user.id}`, 5, 60 * 1000);
+  if (!limited.allowed) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Please wait a moment and try again.' },
+      { status: 429, headers: { 'Retry-After': String(limited.retryAfterSeconds) } },
+    );
+  }
+
+  const body = await readJsonBody(request);
+  if (!body) {
+    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+  }
+  const { text, questionType = 'multiple_choice', choices = [], correctAnswerIndex = -1, correctAnswer, isPublic } = body as {
+    text?: unknown;
+    questionType?: unknown;
+    choices?: unknown;
+    correctAnswerIndex?: unknown;
+    correctAnswer?: unknown;
+    isPublic?: unknown;
+  };
+
+  if (typeof text !== 'string' || !text.trim() || text.trim().length > MAX_QUESTION_TEXT) {
+    return NextResponse.json({ error: `Question text is required (${MAX_QUESTION_TEXT} characters or fewer).` }, { status: 400 });
+  }
+
+  if (!['multiple_choice', 'free_text'].includes(questionType as string)) {
+    return NextResponse.json({ error: 'Missing question fields.' }, { status: 400 });
+  }
+
+  if (questionType === 'multiple_choice') {
+    if (
+      !Array.isArray(choices)
+      || choices.length < 2
+      || choices.length > MAX_CHOICES
+      || choices.some((choice) => typeof choice !== 'string' || !choice.trim() || choice.trim().length > MAX_CHOICE_LENGTH)
+      || typeof correctAnswerIndex !== 'number'
+      || correctAnswerIndex < 0
+      || correctAnswerIndex >= choices.length
+    ) {
+      return NextResponse.json({ error: 'Multiple-choice questions need 2 to 4 short choices and a valid correct answer.' }, { status: 400 });
+    }
+  }
+
+  if (questionType === 'free_text') {
+    if (typeof correctAnswer !== 'string' || !correctAnswer.trim() || correctAnswer.trim().length > MAX_ANSWER_LENGTH) {
+      return NextResponse.json({ error: `Free-text questions need a correct answer (${MAX_ANSWER_LENGTH} characters or fewer).` }, { status: 400 });
+    }
+  }
+
+  const { hasAsked, error: dailyQuestionError } = await getDailyQuestionStatus(user.id);
 
   if (dailyQuestionError) {
     return NextResponse.json({ error: dailyQuestionError }, { status: 500 });
@@ -40,12 +81,12 @@ export async function POST(request: Request) {
   }
 
   const { data: insertedQuestion, error: insertError } = await (supabaseAdmin.from('questions') as any).insert({
-    author_id: session.user.id,
-    text,
-    choices: questionType === 'multiple_choice' ? choices : [],
-    correct_answer_index: questionType === 'multiple_choice' ? correctAnswerIndex : -1,
+    author_id: user.id,
+    text: (text as string).trim(),
+    choices: questionType === 'multiple_choice' ? (choices as string[]).map((choice) => choice.trim()) : [],
+    correct_answer_index: questionType === 'multiple_choice' ? correctAnswerIndex as number : -1,
     question_type: questionType,
-    correct_answer: questionType === 'free_text' ? correctAnswer.trim() : null,
+    correct_answer: questionType === 'free_text' ? (correctAnswer as string).trim() : null,
     is_public: Boolean(isPublic),
   }).select('id, text, choices, question_type').single();
 
@@ -79,10 +120,9 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'questionId is required.' }, { status: 400 });
   }
 
-  const supabase = await createRouteSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
+  const user = await getAuthenticatedUser();
 
-  if (!session?.user?.id) {
+  if (!user?.id) {
     return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
   }
 
@@ -100,7 +140,7 @@ export async function DELETE(request: Request) {
   // Author-only, and not while it is still today's question: the daily gate counts the newest
   // question a user asked, so deleting it would hand the 24-hour rule a loophole.
   const verdict = canDeleteQuestion({
-    viewerId: session.user.id,
+    viewerId: user.id,
     authorId: question.author_id,
     createdAt: question.created_at,
   });

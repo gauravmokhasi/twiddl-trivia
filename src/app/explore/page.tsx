@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { createServerSupabase } from '@/lib/supabase-server';
+import { getAuthenticatedServerUser } from '@/lib/auth-server';
 import { unansweredSessionQuestions } from '@/lib/session-questions';
 import { requireAskedToday } from '@/lib/daily-question-gate';
 import TriviaSession from '@/components/TriviaSession';
@@ -10,10 +10,9 @@ export default async function ExplorePage() {
   // Off limits until today's question has been asked. Signed-out visitors fall through unchanged.
   await requireAskedToday();
 
-  const supabase = await createServerSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
+  const user = await getAuthenticatedServerUser();
 
-  if (!session?.user?.id) {
+  if (!user?.id) {
     return (
       <section className="card mx-auto max-w-2xl p-6 pt-8 md:p-8">
         <p className="eyebrow">Explore</p>
@@ -26,7 +25,7 @@ export default async function ExplorePage() {
 
   const now = new Date();
   const sinceIso = new Date(now.getTime() - WEEK_MS).toISOString();
-  const questions = await unansweredSessionQuestions({ userId: session.user.id, sinceIso, publicOnly: true });
+  const questions = await unansweredSessionQuestions({ userId: user.id, sinceIso, publicOnly: true });
 
   return (
     <div>
@@ -37,6 +36,7 @@ export default async function ExplorePage() {
       </section>
 
       <TriviaSession
+        key={`explore:${questions.map((question) => question.id).join(',')}`}
         questions={questions}
         headerLabel="Explore"
         endState={{

@@ -1,4 +1,4 @@
-import { GROQ_MODEL, describeGroqFailure, getGroqClient } from '@/lib/groq-client';
+import { GROQ_MODEL, describeGroqFailure, getGroqClient, groqChatCompletion } from '@/lib/groq-client';
 
 /**
  * Blind trivia answering with Groq. The question text is sent on its own and never the answer key,
@@ -34,7 +34,7 @@ export async function requestGroqAnswer(questionText: string): Promise<string> {
   const client = getGroqClient();
   if (!client) throw new Error('GROQ_API_KEY is not configured');
 
-  const completion = await client.chat.completions.create({
+  const completion = await groqChatCompletion(client, {
     model: GROQ_MODEL,
     messages: [
       { role: 'system', content: ANSWER_SYSTEM_PROMPT },

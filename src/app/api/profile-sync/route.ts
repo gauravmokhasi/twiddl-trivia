@@ -1,18 +1,16 @@
 import { NextResponse } from 'next/server';
-import { createRouteSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthenticatedUser } from '@/lib/auth-server';
 import { ensureDefaultRelationshipsForUser } from '@/lib/twiddloo';
 import { isIdentityConflictError } from '@/lib/profile-identity';
 
 export async function POST() {
-  const supabase = await createRouteSupabase();
-  const { data: { session }, error: authError } = await supabase.auth.getSession();
+  const user = await getAuthenticatedUser();
 
-  if (authError || !session?.user) {
-    return NextResponse.json({ error: authError?.message ?? 'Authentication required.' }, { status: 401 });
+  if (!user?.id) {
+    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
   }
 
-  const user = session.user;
   const email = user.email;
 
   if (!email) {

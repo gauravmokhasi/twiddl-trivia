@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { createServerSupabase } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthenticatedServerUser } from '@/lib/auth-server';
 import { formatRelativeDate } from '@/lib/utils';
 import { currentQaStreak } from '@/lib/streak';
 import ProfileButton from '@/components/profile-button';
@@ -16,6 +16,8 @@ import { countUnansweredQuestions, unansweredSessionQuestions } from '@/lib/sess
 import { requireAskedToday } from '@/lib/daily-question-gate';
 import type { Database } from '@/lib/database.types';
 
+const ARCHIVE_PAGE_SIZE = 20;
+
 type Props = {
   params: Promise<{
     username: string;
@@ -23,6 +25,7 @@ type Props = {
   searchParams: Promise<{
     play?: string;
     view?: string;
+    page?: string;
   }>;
 };
 
@@ -30,13 +33,12 @@ export default async function ProfilePage({ params, searchParams }: Props) {
   // Off limits until today's question has been asked. Signed-out visitors fall through unchanged.
   await requireAskedToday();
 
-  const supabase = await createServerSupabase();
   const { username } = await params;
-  const { play, view } = await searchParams;
+  const { play, view, page } = await searchParams;
 
-  // get session to determine the current user
-  const { data: { session } } = await supabase.auth.getSession();
-  const currentUserId = session?.user?.id;
+  // Verified identity for follow state and owner-only controls.
+  const viewer = await getAuthenticatedServerUser();
+  const currentUserId = viewer?.id;
 
   // Read profile using service-role client so RLS/permissions don't block server reads
   const { data: userData, error: userError } = await supabaseAdmin
@@ -86,6 +88,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
       <div>
         {backToProfile}
         <TriviaSession
+          key={`profile:${user.id}:${questions.map((question) => question.id).join(',')}`}
           questions={questions}
           headerLabel={`@${user.username} asked`}
           endState={{
@@ -102,13 +105,20 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     );
   }
 
-  // Fetch questions and follow relations using admin client
-  const [{ data: userQuestions }, { data: followerRelations }, { data: followingRelations }, { data: correctAnswers }, { data: askedDates }, { data: answeredDates }] = await Promise.all([
+  // Fetch questions and follow relations using admin client.
+  // The archive is paged (bounded range + count); the stat queries below stay
+  // unbounded because streak/pulse need full date sets - revisit if profiles
+  // ever grow to thousands of rows (server-side date truncation then).
+  const archivePage = Math.max(1, Number.parseInt(page ?? '1', 10) || 1);
+  const archiveFrom = (archivePage - 1) * ARCHIVE_PAGE_SIZE;
+  const archiveTo = archiveFrom + ARCHIVE_PAGE_SIZE - 1;
+  const [{ data: userQuestions, count: archiveCount }, { data: followerRelations }, { data: followingRelations }, { data: correctAnswers }, { data: askedDates }, { data: answeredDates }] = await Promise.all([
     supabaseAdmin
       .from('questions')
-      .select('id, text, created_at')
+      .select('id, text, created_at', { count: 'exact' })
       .eq('author_id', user.id)
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .range(archiveFrom, archiveTo),
     supabaseAdmin.from('follows').select('follower_id').eq('followee_id', user.id),
     supabaseAdmin.from('follows').select('followee_id').eq('follower_id', user.id),
     supabaseAdmin
@@ -119,6 +129,8 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     supabaseAdmin.from('questions').select('created_at').eq('author_id', user.id),
     supabaseAdmin.from('answers').select('created_at').eq('responder_id', user.id),
   ]);
+
+  const archiveTotalPages = Math.max(1, Math.ceil((archiveCount ?? 0) / ARCHIVE_PAGE_SIZE));
 
   const typedAskedDates = askedDates as { created_at: string }[] | null;
   const typedAnsweredDates = answeredDates as { created_at: string }[] | null;
@@ -260,7 +272,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
       <section className="card p-5 md:p-6">
         <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Past questions</h3><span className="text-sm text-zinc-500">{isCurrentUser ? 'Your archive' : 'Their archive'}</span></div>
         {!typedUserQuestions || typedUserQuestions.length === 0 ? (
-          <p className="mt-4 text-slate-700">This user has not asked any questions yet.</p>
+          <p className="mt-4 text-slate-700">{archivePage > 1 ? 'Nothing on this page.' : 'This user has not asked any questions yet.'}</p>
         ) : (
           <div className="mt-4 space-y-4">
             {typedUserQuestions.map((question) => (
@@ -275,6 +287,21 @@ export default async function ProfilePage({ params, searchParams }: Props) {
             ))}
           </div>
         )}
+        {archiveTotalPages > 1 ? (
+          <nav className="flex items-center justify-center gap-3 pt-4" aria-label="Archive pages">
+            {archivePage > 1 ? (
+              <Link href={archivePage === 2 ? `/profile/${user.username}?view=profile` : `/profile/${user.username}?view=profile&page=${archivePage - 1}`} className="button button-secondary text-sm">
+                ← Newer
+              </Link>
+            ) : null}
+            <span className="text-sm text-zinc-500">Page {Math.min(archivePage, archiveTotalPages)} of {archiveTotalPages}</span>
+            {archivePage < archiveTotalPages ? (
+              <Link href={`/profile/${user.username}?view=profile&page=${archivePage + 1}`} className="button button-secondary text-sm">
+                Older →
+              </Link>
+            ) : null}
+          </nav>
+        ) : null}
       </section>
     </div>
   );
