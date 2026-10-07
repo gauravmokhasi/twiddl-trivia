@@ -29,9 +29,6 @@ type Props = {
 };
 
 export default async function ProfilePage({ params, searchParams }: Props) {
-  // Off limits until today's question has been asked. Signed-out visitors fall through unchanged.
-  await requireAskedToday();
-
   const { username } = await params;
   const { play, view, page } = await searchParams;
 
@@ -51,6 +48,9 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     notFound();
   }
 
+  // Account settings remain available; other people's profiles still require today's question.
+  await requireAskedToday({ profileOwnerId: user.id });
+
   // An unlisted profile is reachable by handle: it never appears in the Universe
   // (that listing filters on is_public) but anyone who has the username can still open it and
   // follow it, which is the point of sharing the handle.
@@ -63,14 +63,18 @@ export default async function ProfilePage({ params, searchParams }: Props) {
   // are treated like any other profile. ?play=1 always starts answering.
   let startAnswering = user.is_public || play === '1';
 
-  if (!startAnswering && view !== 'profile' && currentUserId && currentUserId !== user.id) {
-    const { data: followRow } = await supabaseAdmin
+  // Load this viewer's relation directly, independent of the followers list's row limit.
+  let isFollowing = false;
+  if (currentUserId && currentUserId !== user.id) {
+    const { data: followRow, error: followError } = await supabaseAdmin
       .from('follows')
       .select('follower_id')
       .eq('follower_id', currentUserId)
       .eq('followee_id', user.id)
       .maybeSingle();
-    startAnswering = Boolean(followRow);
+    if (followError) throw new Error('Unable to load follow state. Please try again.');
+    isFollowing = Boolean(followRow);
+    if (!startAnswering && view !== 'profile') startAnswering = isFollowing;
   }
 
   if (startAnswering && view !== 'profile' && currentUserId && currentUserId !== user.id) {
@@ -217,7 +221,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
             {profileCounts && unansweredCount === 0 && profileCounts.total > 0 ? (
               <span className="text-xs text-zinc-500">You have answered all {profileCounts.total} of their questions.</span>
             ) : null}
-            {!isCurrentUser ? <ProfileButton profileId={user.id} /> : null}
+            {!isCurrentUser ? <ProfileButton key={`${currentUserId}:${user.id}:${isFollowing}`} profileId={user.id} viewerId={currentUserId ?? null} initialIsFollowing={isFollowing} /> : null}
           </div>
         </div>
         {isCurrentUser ? <ProfileEditor displayName={user.display_name} bio={user.bio} /> : null}

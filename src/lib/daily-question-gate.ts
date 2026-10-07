@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import { getAuthenticatedServerUser } from './auth-server';
 import { getDailyQuestionStatus } from './daily-question';
+import { isDailyQuestionRouteLocked } from './daily-question-access';
 
 export type DailyQuestionGate = {
   userId: string | null;
@@ -35,10 +36,10 @@ export const getDailyQuestionGate = cache(async (): Promise<DailyQuestionGate> =
  * Guard for every route that is off limits until today's question has been asked. Sends the member
  * back to the feed, which is where the composer lives.
  */
-export async function requireAskedToday(): Promise<void> {
-  const { locked } = await getDailyQuestionGate();
+export async function requireAskedToday({ profileOwnerId }: { profileOwnerId?: string } = {}): Promise<void> {
+  const { locked, userId } = await getDailyQuestionGate();
 
-  if (locked) {
+  if (isDailyQuestionRouteLocked(locked, userId, profileOwnerId)) {
     redirect('/');
   }
 }

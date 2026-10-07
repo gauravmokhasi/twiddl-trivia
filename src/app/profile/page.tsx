@@ -2,13 +2,9 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthenticatedServerUser } from '@/lib/auth-server';
-import { requireAskedToday } from '@/lib/daily-question-gate';
 import UsernamePrompt from '@/components/UsernamePrompt';
 
 export default async function MyProfilePage() {
-  // Off limits until today's question has been asked. Signed-out visitors fall through unchanged.
-  await requireAskedToday();
-
   const user = await getAuthenticatedServerUser();
 
   if (!user?.id) {

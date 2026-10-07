@@ -215,3 +215,10 @@ textarea:focus {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Visible keyboard focus without changing the resting theme. */
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 3px;
+}

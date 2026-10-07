@@ -1,9 +1,5 @@
-'use client';
-
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import AuthCard from '@/components/AuthCard';
-import { useAuth } from '@/components/AuthProvider';
+import RefreshAuthenticatedLanding from '@/components/RefreshAuthenticatedLanding';
 
 const sampleChoices: [string, string][] = [
   ['A', 'Jupiter'],
@@ -13,28 +9,9 @@ const sampleChoices: [string, string][] = [
 ];
 
 export default function LoggedOutLanding() {
-  const { session, isLoading } = useAuth();
-  const router = useRouter();
-
-  // A sign-in link can land here with the session already in the browser, so refresh the
-  // server render instead of flashing the signup form at an already signed-in user.
-  useEffect(() => {
-    if (!isLoading && session?.user?.id) {
-      router.refresh();
-    }
-  }, [isLoading, session, router]);
-
-  if (isLoading || session?.user?.id) {
-    return (
-      <div className="mx-auto max-w-md space-y-3 pt-24 text-center">
-        <span className="mx-auto grid h-10 w-10 animate-pulse place-items-center rounded-xl bg-violet-500/20 text-sm font-black text-violet-200">T</span>
-        <p className="text-sm text-zinc-500">Loading your Twiddl...</p>
-      </div>
-    );
-  }
-
   return (
     <div className="grid gap-12 pt-6 lg:grid-cols-2 lg:items-center lg:gap-16">
+      <RefreshAuthenticatedLanding />
       <section className="space-y-6">
         <div className="flex items-center gap-3">
           <span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-500 text-base font-black text-white shadow-lg shadow-violet-500/20">T</span>

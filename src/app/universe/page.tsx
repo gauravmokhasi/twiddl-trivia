@@ -42,6 +42,14 @@ export default async function UniversePage({ searchParams }: Props) {
     .range(from, to);
   const publicUsers = publicUsersData as { id: string; username: string; display_name: string | null; bio: string | null }[] | null;
 
+  // One bounded lookup for all visible cards; no per-button browser status requests.
+  const profileIds = publicUsers?.map((profile) => profile.id) ?? [];
+  const { data: followRows, error: followError } = profileIds.length
+    ? await supabaseAdmin.from('follows').select('followee_id').eq('follower_id', userId).in('followee_id', profileIds)
+    : { data: [], error: null };
+  if (followError) throw new Error('Unable to load follow states. Please try again.');
+  const followedIds = new Set(followRows?.map((row) => row.followee_id));
+
   const totalPages = Math.max(1, Math.ceil((count ?? 0) / UNIVERSE_PAGE_SIZE));
 
   return (
@@ -58,16 +66,16 @@ export default async function UniversePage({ searchParams }: Props) {
       <section className="grid gap-4 md:grid-cols-2">
         {publicUsers?.map((user) => (
           <article key={user.id} className="card group p-5 hover:-translate-y-0.5">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex min-w-0 items-start gap-3">
                 <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-violet-500/15 text-lg font-bold text-violet-200">{user.username.charAt(0).toUpperCase()}</span>
-                <div>
+                <div className="min-w-0 break-words">
                   <h3 className="text-lg font-bold text-zinc-100">{user.display_name}</h3>
                   <p className="mt-0.5 text-sm text-violet-300">@{user.username}</p>
                 </div>
               </div>
               <div className="shrink-0">
-                <ProfileButton profileId={user.id} />
+                <ProfileButton key={`${userId}:${user.id}:${followedIds.has(user.id)}`} profileId={user.id} viewerId={userId} initialIsFollowing={followedIds.has(user.id)} />
               </div>
             </div>
             <p className="mt-5 min-h-12 text-sm leading-6 text-zinc-400">{user.bio || 'A curious mind in the Twiddl universe.'}</p>
