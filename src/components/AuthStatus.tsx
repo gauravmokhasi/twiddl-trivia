@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import posthog from 'posthog-js';
 import { useAuth } from '@/components/AuthProvider';
+import { isAnalyticsEnabled } from '@/lib/analytics';
 
 export default function AuthStatus() {
   const { session, supabase } = useAuth();
@@ -18,6 +20,18 @@ export default function AuthStatus() {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
+
+      // Sign-out is followed by a full navigation, which remounts the app with a
+      // fresh identity ref - so the ref-based reset in AnalyticsIdentity would
+      // never see this transition. Clear the stored identity here instead, so the
+      // next person on this browser does not inherit the signed-out account's
+      // PostHog person.
+      try {
+        if (isAnalyticsEnabled()) posthog.reset();
+      } catch {
+        // Analytics is optional; it must never block signing out.
+      }
+
       // A full navigation discards authenticated server payloads and prefetched routes.
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Sign-out must discard the authenticated client cache.
       window.location.assign('/');

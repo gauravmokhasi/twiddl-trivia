@@ -4,6 +4,7 @@ import { getAuthenticatedUser } from '@/lib/auth-server';
 import { readJsonBody } from '@/lib/api-guards';
 import { answeredResult, gradeAnswer, validateAnswer } from '@/lib/answer-grading';
 import { loadQuestionSecret } from '@/lib/question-secrets-server';
+import { captureServerEvent } from '@/lib/analytics-server';
 import type { Database } from '@/lib/database.types';
 
 type Answer = Database['public']['Tables']['answers']['Row'];
@@ -72,7 +73,13 @@ export async function POST(request: Request) {
       responder_id: user.id,
       ...gradedAnswer,
     };
-    const { error: insertError } = await supabaseAdmin.from('answers').insert(payload);
+    // `.select('id')` compiles to `insert ... returning id`: a single statement,
+    // so it cannot change whether the insert itself succeeded. The id is only
+    // used to give the analytics event a stable, deduplicable identity.
+    const { data: insertedRows, error: insertError } = await supabaseAdmin
+      .from('answers')
+      .insert(payload)
+      .select('id');
     if (insertError) {
       // Two tabs can submit together. The unique constraint chooses the first recorded answer;
       // always return that outcome, never grade the losing request as a second attempt.
@@ -83,6 +90,25 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ error: 'Unable to save your answer.' }, { status: 500 });
     }
+
+    // Reached only for a freshly persisted answer. The 23505 branch above (an
+    // answer that was already saved), the GET handler, and every validation or
+    // lookup failure all return earlier, so reloading an answered question or
+    // re-submitting it can never emit `answer_submitted`.
+    await captureServerEvent({
+      distinctId: user.id,
+      event: 'answer_submitted',
+      properties: {
+        answer_id: insertedRows?.[0]?.id ?? null,
+        question_id: questionId,
+        question_type: question.question_type,
+        is_correct: gradedAnswer.is_correct,
+      },
+      // Falls back to the unique (question, responder) pair if the id is absent,
+      // so the deterministic UUID stays stable for this one persisted answer.
+      persistedId: insertedRows?.[0]?.id ?? `${questionId}:${user.id}`,
+    });
+
     // An answer key is returned only after the grade has successfully been persisted.
     return resultResponse(answeredResult(question, secret, gradedAnswer));
   } catch {

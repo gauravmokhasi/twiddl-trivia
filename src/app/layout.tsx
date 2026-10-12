@@ -5,6 +5,7 @@ import SupabaseProvider from '@/components/SupabaseProvider';
 import AuthStatus from '@/components/AuthStatus';
 import ProfileSync from '@/components/ProfileSync';
 import NavLinks from '@/components/NavLinks';
+import AnalyticsIdentity from '@/components/AnalyticsIdentity';
 import { getDailyQuestionGate } from '@/lib/daily-question-gate';
 import { digestLatestAt, loadNotificationDigest } from '@/lib/notifications-server';
 
@@ -33,6 +34,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         <SupabaseProvider>
           <ProfileSync />
+          {/* Renders null; only keeps PostHog's identity aligned with the Supabase session. */}
+          <AnalyticsIdentity />
           <div className="container">
             <header className="sticky top-0 z-20 -mx-4 border-b border-white/[0.06] bg-[#09090b]/85 px-4 backdrop-blur-xl md:-mx-6 md:px-6">
               <div className="flex min-h-[4.25rem] flex-col justify-center gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">

@@ -57,6 +57,31 @@ npm run lint
 
 Never commit `.env.local` or any Supabase service-role key. The service-role key is server-only and must not be exposed through `NEXT_PUBLIC_*` variables. `GROQ_API_KEY` is server-only in the same way: it is read inside `src/lib/groq-client.ts`, which is only ever imported by server code, and the daily question falls back to a static list when the key is absent.
 
+## PostHog product analytics (optional)
+
+Twiddl ships a small PostHog integration. It is **off unless all three variables are present**, so the app, the tests and the build all work normally with them unset. No Supabase SQL, migration or new table is involved.
+
+| Variable | Where it comes from | Notes |
+| --- | --- | --- |
+| `NEXT_PUBLIC_POSTHOG_KEY` | PostHog → **Project settings → Project API key** | The *project ingestion token*, which is safe to expose to the browser. Never a PostHog *personal* API key, and never `SUPABASE_SERVICE_ROLE_KEY`. |
+| `NEXT_PUBLIC_POSTHOG_HOST` | PostHog → **Project settings → Instance address** | `https://us.i.posthog.com` for US Cloud, `https://eu.i.posthog.com` for EU Cloud. |
+| `NEXT_PUBLIC_POSTHOG_ENABLED` | You | Must be exactly `true` to capture. Leave unset (or `false`) everywhere except production. |
+
+Because all three are `NEXT_PUBLIC_*`, they are inlined at build time and the browser and server always agree on whether capture is allowed.
+
+**To enable it:** add the three variables in Vercel under *Project Settings → Environment Variables*, scoped to **Production** only, then redeploy. Preview deployments and local development deliberately stay out of the production dataset. To test safely, add the same three variables to a Preview deployment pointing at a **separate** PostHog project.
+
+**Filtering out your own testing account.** Every event is keyed on the Supabase `user.id`, which is also the distinct ID used by `posthog.identify`. To exclude your own activity in PostHog, add an **Exclusion filter** to insights, dashboards and cohorts on the built-in `Distinct ID` property:
+
+- To hide one session: `Distinct ID does not equal <your-supabase-user-id>`
+- To hide your account permanently: create a cohort with `Match all events` → `Distinct ID equals <your-supabase-user-id>`, then add that cohort as an exclusion filter on each insight.
+
+Your Supabase user ID is the UUID in *Authentication → Users*. It is not hard-coded anywhere in Twiddl, so excluding it is a PostHog-side configuration step rather than a code change.
+
+What is **not** enabled: feature flags, experiments, surveys, session recording, autocapture (clicks and form submits), and error tracking.
+
+Never send, and never expect to find in PostHog: question text, answer choices, submitted free-text answers, accepted answers or correct-answer indices, emails, names, handles, bios, auth tokens, or raw request bodies.
+
 ## Deploying to Vercel
 
 1. Push the project to a GitHub repository. Include the source code, `package.json`, `package-lock.json`, configuration files, documentation, `.env.local.example`, and `vercel.json`. Do not commit `.env.local`, `node_modules`, or `.next`.

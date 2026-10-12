@@ -10,6 +10,7 @@ import ProfileVisibilityToggle from '@/components/profile-visibility-toggle';
 import AccuracyCheckToggle from '@/components/AccuracyCheckToggle';
 import DeleteQuestionButton from '@/components/DeleteQuestionButton';
 import TriviaSession from '@/components/TriviaSession';
+import ProfileViewTracker from '@/components/ProfileViewTracker';
 import TwiddlPulse from '@/components/TwiddlPulse';
 import { buildPulseDays, PULSE_WINDOW_DAYS } from '@/lib/pulse';
 import { profileQuestionCounts, unansweredSessionQuestions } from '@/lib/session-questions';
@@ -90,6 +91,9 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     return (
       <div>
         {backToProfile}
+        {/* Answering someone's questions is still a visit to their profile, and for a
+            public profile it is the default landing view - so it counts as one too. */}
+        <ProfileViewTracker profileUserId={user.id} isOwnProfile={currentUserId === user.id} />
         <TriviaSession
           key={`profile:${user.id}:${questions.map((question) => question.id).join(',')}`}
           questions={questions}
@@ -196,6 +200,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
 
   return (
     <div className="space-y-6">
+      <ProfileViewTracker profileUserId={user.id} isOwnProfile={isCurrentUser} />
       <section className="card relative overflow-hidden p-6 md:p-8">
         <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-violet-500/10 blur-3xl" />
         <div className="relative flex flex-col gap-7 md:flex-row md:items-end md:justify-between">

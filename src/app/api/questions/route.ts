@@ -14,6 +14,7 @@ import { getDailyQuestionStatus } from '@/lib/daily-question';
 import { canDeleteQuestion } from '@/lib/question-deletion';
 import { createQuestionWithSecret } from '@/lib/question-secrets-server';
 import { dailyQuestionLimitResponse, isDailyQuestionLimitError } from '@/lib/daily-question-rule';
+import { captureServerEvent } from '@/lib/analytics-server';
 
 export async function POST(request: Request) {
   const user = await getAuthenticatedUser();
@@ -98,6 +99,26 @@ export async function POST(request: Request) {
       return NextResponse.json(dailyQuestionLimitResponse(), { status: 403 });
     }
     return NextResponse.json({ error: insertError.message }, { status: 500 });
+  }
+
+  // Reached only once the question and its key are durably written by the same
+  // transaction. A validation failure, a refused daily limit and a failed write
+  // all return above, so none of them can emit a success event. The distinct ID
+  // comes from the verified server session, never from the request body.
+  //
+  // Note this route is the human posting path only: twiddloo's own daily question
+  // is created by the cron route through `seedTodaysTwiddlooQuestion`, so bot
+  // activity never produces a `question_asked` here.
+  if (insertedQuestion) {
+    await captureServerEvent({
+      distinctId: user.id,
+      event: 'question_asked',
+      properties: {
+        question_id: insertedQuestion.id,
+        question_type: insertedQuestion.question_type,
+      },
+      persistedId: insertedQuestion.id,
+    });
   }
 
   // twiddloo's answer is a flourish, not part of the author's post. The question is already saved and
