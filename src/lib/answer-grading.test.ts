@@ -11,7 +11,7 @@ const freeKey = { question_id: 'question', correct_answer_index: null, correct_a
 test('runtime playable allowlist strips secrets even from a wider source object', () => {
   const source = {
     id: 'question', author_id: 'author', text: 'Capital of France?', ...multipleChoice,
-    is_public: true, created_at: '2026-10-07T00:00:00Z',
+    is_public: true, created_at: '2026-10-07T00:00:00Z', image_url: null,
     correct_answer: 'Paris', correct_answer_index: 1, question_secrets: mcKey,
   };
   const playable = toPlayableQuestion(source);

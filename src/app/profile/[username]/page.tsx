@@ -15,6 +15,9 @@ import TwiddlPulse from '@/components/TwiddlPulse';
 import { buildPulseDays, PULSE_WINDOW_DAYS } from '@/lib/pulse';
 import { profileQuestionCounts, unansweredSessionQuestions } from '@/lib/session-questions';
 import { requireAskedToday } from '@/lib/daily-question-gate';
+import { summarizeFollowList } from '@/lib/follower-lists';
+import { hasBlocked, loadMyBlockedProfiles, withholdsQuestionsFrom } from '@/lib/user-blocks-server';
+import { BlockButton, UnblockButton } from '@/components/block-button';
 
 const ARCHIVE_PAGE_SIZE = 20;
 
@@ -40,10 +43,17 @@ export default async function ProfilePage({ params, searchParams }: Props) {
   // Read profile using service-role client so RLS/permissions don't block server reads
   const { data: userData, error: userError } = await supabaseAdmin
     .from('profiles')
-    .select('id, username, display_name, bio, is_public')
+    .select('id, username, display_name, bio, is_public, reengagement_emails_enabled')
     .eq('username', username)
     .single();
-  const user = userData as { id: string; username: string; display_name: string | null; bio: string | null; is_public: boolean } | null;
+  const user = userData as {
+    id: string;
+    username: string;
+    display_name: string | null;
+    bio: string | null;
+    is_public: boolean;
+    reengagement_emails_enabled: boolean;
+  } | null;
 
   if (userError || !user) {
     notFound();
@@ -51,6 +61,20 @@ export default async function ProfilePage({ params, searchParams }: Props) {
 
   // Account settings remain available; other people's profiles still require today's question.
   await requireAskedToday({ profileOwnerId: user.id });
+
+  // Two directions of one private relationship. The first withholds this
+  // owner's questions from the viewer; the second only decides the Block button
+  // label. Both fail in the safe direction and neither is ever shown to anyone
+  // but the viewer themselves.
+  const viewerBlockedFromOwner = await withholdsQuestionsFrom(user.id, currentUserId);
+  let viewerHasBlockedOwner = false;
+  if (currentUserId && currentUserId !== user.id) {
+    try {
+      viewerHasBlockedOwner = await hasBlocked(currentUserId, user.id);
+    } catch {
+      viewerHasBlockedOwner = false; // only affects the button's initial label
+    }
+  }
 
   // An unlisted profile is reachable by handle: it never appears in the Universe
   // (that listing filters on is_public) but anyone who has the username can still open it and
@@ -62,7 +86,10 @@ export default async function ProfilePage({ params, searchParams }: Props) {
   // belongs to the viewer. An unlisted profile keeps that profile-first default for viewers who
   // do not follow it yet, which is where the follow button lives; viewers who already follow it
   // are treated like any other profile. ?play=1 always starts answering.
-  let startAnswering = user.is_public || play === '1';
+  //
+  // A blocked viewer never enters the answering flow: their questions are withheld, so the
+  // profile view itself is what they get.
+  let startAnswering = !viewerBlockedFromOwner && (user.is_public || play === '1');
 
   // Load this viewer's relation directly, independent of the followers list's row limit.
   let isFollowing = false;
@@ -75,7 +102,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
       .maybeSingle();
     if (followError) throw new Error('Unable to load follow state. Please try again.');
     isFollowing = Boolean(followRow);
-    if (!startAnswering && view !== 'profile') startAnswering = isFollowing;
+    if (!viewerBlockedFromOwner && !startAnswering && view !== 'profile') startAnswering = isFollowing;
   }
 
   if (startAnswering && view !== 'profile' && currentUserId && currentUserId !== user.id) {
@@ -120,12 +147,16 @@ export default async function ProfilePage({ params, searchParams }: Props) {
   const archiveFrom = (archivePage - 1) * ARCHIVE_PAGE_SIZE;
   const archiveTo = archiveFrom + ARCHIVE_PAGE_SIZE - 1;
   const [{ data: userQuestions, count: archiveCount }, { data: followerRelations }, { data: followingRelations }, { count: correctAnswerCount }, { data: askedDates }, { data: answeredDates }] = await Promise.all([
-    supabaseAdmin
-      .from('questions')
-      .select('id, text, created_at', { count: 'exact' })
-      .eq('author_id', user.id)
-      .order('created_at', { ascending: false })
-      .range(archiveFrom, archiveTo),
+    // A blocked viewer gets neither rows nor a count: the archive is withheld
+    // before it can be counted or rendered.
+    viewerBlockedFromOwner
+      ? Promise.resolve({ data: [] as { id: string; text: string; created_at: string }[], count: null as number | null })
+      : supabaseAdmin
+        .from('questions')
+        .select('id, text, created_at', { count: 'exact' })
+        .eq('author_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(archiveFrom, archiveTo),
     supabaseAdmin.from('follows').select('follower_id').eq('followee_id', user.id),
     supabaseAdmin.from('follows').select('followee_id').eq('follower_id', user.id),
     supabaseAdmin
@@ -133,7 +164,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
       .select('id', { count: 'exact', head: true })
       .eq('responder_id', user.id)
       .eq('is_correct', true),
-    supabaseAdmin.from('questions').select('created_at').eq('author_id', user.id),
+    supabaseAdmin.from('questions').select('id, text, image_url, created_at').eq('author_id', user.id),
     supabaseAdmin.from('answers').select('created_at').eq('responder_id', user.id),
   ]);
 
@@ -141,7 +172,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
 
   const typedAskedDates = askedDates as { created_at: string }[] | null;
   const typedAnsweredDates = answeredDates as { created_at: string }[] | null;
-  const typedUserQuestions = userQuestions as { id: string; text: string; created_at: string }[] | null;
+  const typedUserQuestions = userQuestions as { id: string; text: string; image_url: string | null; created_at: string }[] | null;
 
   const qaStreak = currentQaStreak(
     typedAskedDates?.map((item) => item.created_at) ?? [],
@@ -153,17 +184,57 @@ export default async function ProfilePage({ params, searchParams }: Props) {
   const followerIds = typedFollowerRelations?.map((item) => item.follower_id) ?? [];
   const followingIds = typedFollowingRelations?.map((item) => item.followee_id) ?? [];
 
-  const [{ data: followers }, { data: following }] = await Promise.all([
-    followerIds.length > 0
-      ? supabaseAdmin.from('profiles').select('id, username, display_name').in('id', followerIds)
-      : Promise.resolve({ data: [] as { id: string; username: string; display_name: string }[] }),
-    followingIds.length > 0
-      ? supabaseAdmin.from('profiles').select('id, username, display_name').in('id', followingIds)
-      : Promise.resolve({ data: [] as { id: string; username: string; display_name: string }[] }),
+  const isCurrentUser = currentUserId === user.id;
+
+  // The owner sees their own lists in full. Anyone else sees only listed profiles:
+  // the withheld ones are reduced to a head-only count, so an unlisted identity
+  // never reaches the browser at all. The relation ids above stay server-side.
+  const profileColumns = 'id, username, display_name';
+  const visibleFollowProfiles = (ids: string[]) => {
+    const query = supabaseAdmin.from('profiles').select(profileColumns).in('id', ids);
+    return isCurrentUser ? query : query.eq('is_public', true);
+  };
+  const withheldFollowProfileCount = (ids: string[]) =>
+    supabaseAdmin
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .in('id', ids)
+      .eq('is_public', false);
+
+  const [
+    { data: followerRows },
+    { data: followingRows },
+    { count: withheldFollowerCount },
+    { count: withheldFollowingCount },
+  ] = await Promise.all([
+    followerIds.length > 0 ? visibleFollowProfiles(followerIds) : Promise.resolve({ data: [] }),
+    followingIds.length > 0 ? visibleFollowProfiles(followingIds) : Promise.resolve({ data: [] }),
+    isCurrentUser || followerIds.length === 0
+      ? Promise.resolve({ count: null as number | null })
+      : withheldFollowProfileCount(followerIds),
+    isCurrentUser || followingIds.length === 0
+      ? Promise.resolve({ count: null as number | null })
+      : withheldFollowProfileCount(followingIds),
   ]);
 
-  const isCurrentUser = currentUserId === user.id;
-  const profileCounts = currentUserId && !isCurrentUser
+  const followers = (followerRows ?? []) as { id: string; username: string; display_name: string }[];
+  const following = (followingRows ?? []) as { id: string; username: string; display_name: string }[];
+
+  // The header keeps showing the true total, so "listed + unlisted" still adds up.
+  const followersSummary = summarizeFollowList({
+    visibleCount: followers.length,
+    hiddenCount: withheldFollowerCount ?? 0,
+  });
+  const followingSummary = summarizeFollowList({
+    visibleCount: following.length,
+    hiddenCount: withheldFollowingCount ?? 0,
+  });
+
+  // Only ever the caller's own block list, and only while they are looking at
+  // their own profile. Never fetched for anyone else's profile.
+  const blockedProfiles = isCurrentUser && currentUserId ? await loadMyBlockedProfiles(currentUserId) : [];
+
+  const profileCounts = currentUserId && !isCurrentUser && !viewerBlockedFromOwner
     ? await profileQuestionCounts(user.id, currentUserId)
     : null;
   const unansweredCount = profileCounts?.unanswered ?? 0;
@@ -227,6 +298,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
               <span className="text-xs text-zinc-500">You have answered all {profileCounts.total} of their questions.</span>
             ) : null}
             {!isCurrentUser ? <ProfileButton key={`${currentUserId}:${user.id}:${isFollowing}`} profileId={user.id} viewerId={currentUserId ?? null} initialIsFollowing={isFollowing} /> : null}
+            {!isCurrentUser && currentUserId ? <BlockButton profileId={user.id} initialIsBlocked={viewerHasBlockedOwner} /> : null}
           </div>
         </div>
         {isCurrentUser ? <ProfileEditor displayName={user.display_name} bio={user.bio} /> : null}
@@ -235,34 +307,48 @@ export default async function ProfilePage({ params, searchParams }: Props) {
 
       <section className="grid items-start gap-5 md:grid-cols-2 lg:grid-cols-3">
         <div className="card p-5">
-          <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Following</h3><span className="text-sm text-zinc-500">{following?.length ?? 0}</span></div>
-          {!following || following.length === 0 ? (
+          <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Following</h3><span className="text-sm text-zinc-500">{followingSummary.total}</span></div>
+          {followingSummary.isEmpty ? (
             <p className="mt-4 text-slate-700">This user is not following anyone yet.</p>
           ) : (
-            <div className="mt-4 space-y-3">
-              {following.map((followee) => (
-                <Link key={followee.id} href={`/profile/${followee.username}`} className="flex items-center gap-3 border-b border-white/[0.06] py-3 last:border-0 hover:text-violet-300">
-                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/[0.06] text-sm font-bold text-violet-200">{followee.username.charAt(0).toUpperCase()}</span>
-                  <span><span className="block text-sm font-semibold text-zinc-200">{followee.display_name}</span><span className="block text-xs text-zinc-500">@{followee.username}</span></span>
-                </Link>
-              ))}
-            </div>
+            <>
+              {following.length > 0 ? (
+                <div className="mt-4 space-y-3">
+                  {following.map((followee) => (
+                    <Link key={followee.id} href={`/profile/${followee.username}`} className="flex items-center gap-3 border-b border-white/[0.06] py-3 last:border-0 hover:text-violet-300">
+                      <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/[0.06] text-sm font-bold text-violet-200">{followee.username.charAt(0).toUpperCase()}</span>
+                      <span><span className="block text-sm font-semibold text-zinc-200">{followee.display_name}</span><span className="block text-xs text-zinc-500">@{followee.username}</span></span>
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+              {followingSummary.unlistedLabel ? (
+                <p className="mt-4 text-sm text-zinc-500">{followingSummary.unlistedLabel}</p>
+              ) : null}
+            </>
           )}
         </div>
 
         <div id="followers" className="card p-5 scroll-mt-24">
-          <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Followers</h3><span className="text-sm text-zinc-500">{followers?.length ?? 0}</span></div>
-          {!followers || followers.length === 0 ? (
+          <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Followers</h3><span className="text-sm text-zinc-500">{followersSummary.total}</span></div>
+          {followersSummary.isEmpty ? (
             <p className="mt-4 text-slate-700">No one is following this user yet.</p>
           ) : (
-            <div className="mt-4 space-y-3">
-              {followers.map((follower) => (
-                <Link key={follower.id} href={`/profile/${follower.username}`} className="flex items-center gap-3 border-b border-white/[0.06] py-3 last:border-0 hover:text-violet-300">
-                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/[0.06] text-sm font-bold text-violet-200">{follower.username.charAt(0).toUpperCase()}</span>
-                  <span><span className="block text-sm font-semibold text-zinc-200">{follower.display_name}</span><span className="block text-xs text-zinc-500">@{follower.username}</span></span>
-                </Link>
-              ))}
-            </div>
+            <>
+              {followers.length > 0 ? (
+                <div className="mt-4 space-y-3">
+                  {followers.map((follower) => (
+                    <Link key={follower.id} href={`/profile/${follower.username}`} className="flex items-center gap-3 border-b border-white/[0.06] py-3 last:border-0 hover:text-violet-300">
+                      <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/[0.06] text-sm font-bold text-violet-200">{follower.username.charAt(0).toUpperCase()}</span>
+                      <span><span className="block text-sm font-semibold text-zinc-200">{follower.display_name}</span><span className="block text-xs text-zinc-500">@{follower.username}</span></span>
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+              {followersSummary.unlistedLabel ? (
+                <p className="mt-4 text-sm text-zinc-500">{followersSummary.unlistedLabel}</p>
+              ) : null}
+            </>
           )}
         </div>
 
@@ -278,6 +364,38 @@ export default async function ProfilePage({ params, searchParams }: Props) {
         </div>
       </section>
 
+      {/* Private to the owner: only their own block list, and only on their own profile. */}
+      {isCurrentUser ? (
+        <section className="card p-5 md:p-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-zinc-100">Blocked users</h3>
+            <span className="text-sm text-zinc-500">{blockedProfiles.length}</span>
+          </div>
+          <p className="mt-2 text-sm text-zinc-400">
+            A blocked person cannot follow you or see your questions. Unblocking does not restore a
+            follow that was removed.
+          </p>
+          {blockedProfiles.length === 0 ? (
+            <p className="mt-4 text-slate-700">You have not blocked anyone.</p>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {blockedProfiles.map((blocked) => (
+                <li key={blocked.id} className="flex items-center justify-between gap-3 border-b border-white/[0.06] py-3 last:border-0">
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/[0.06] text-sm font-bold text-violet-200">{blocked.username.charAt(0).toUpperCase()}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-zinc-200">{blocked.display_name ?? blocked.username}</span>
+                      <span className="block truncate text-xs text-zinc-500">@{blocked.username}</span>
+                    </span>
+                  </span>
+                  <UnblockButton profileId={blocked.id} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
       <section className="card p-5 md:p-6">
         <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-zinc-100">Past questions</h3><span className="text-sm text-zinc-500">{isCurrentUser ? 'Your archive' : 'Their archive'}</span></div>
         {!typedUserQuestions || typedUserQuestions.length === 0 ? (
@@ -287,8 +405,13 @@ export default async function ProfilePage({ params, searchParams }: Props) {
             {typedUserQuestions.map((question) => (
               <div key={question.id} className="flex flex-wrap items-start justify-between gap-3 border-b border-white/[0.06] py-4 last:border-0">
                 <Link href={`/questions/${question.id}`} className="min-w-0 flex-1 transition hover:text-violet-300">
-                  <p className="font-semibold text-zinc-200">{question.text}</p>
-                  <p className="mt-1 text-xs text-zinc-500">{formatRelativeDate(question.created_at)}</p>
+                  <div className="flex flex-col gap-2">
+                    {question.image_url ? (
+                      <img src={question.image_url} alt="Question image" className="max-h-40 max-w-full rounded-xl border border-white/[0.12] object-cover" />
+                    ) : null}
+                    <p className="font-semibold text-zinc-200">{question.text}</p>
+                    <p className="mt-1 text-xs text-zinc-500">{formatRelativeDate(question.created_at)}</p>
+                  </div>
                 </Link>
                 {/* Only the author sees this, and the API refuses anything younger than a day. */}
                 {isCurrentUser ? <DeleteQuestionButton questionId={question.id} /> : null}

@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { ensureTwiddloo, seedTodaysTwiddlooQuestion, TWIDDLOO_ID } from '@/lib/twiddloo';
+import { isCronAuthorized } from '@/lib/cron-auth';
 
 export async function GET(request: Request) {
-  const cronSecret = process.env.CRON_SECRET;
-  const authorization = request.headers.get('authorization');
-
-  if (!cronSecret || authorization !== `Bearer ${cronSecret}`) {
+  if (!isCronAuthorized(request.headers.get('authorization'), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
   }
 
@@ -30,7 +28,11 @@ export async function GET(request: Request) {
 
     const questionId = await seedTodaysTwiddlooQuestion();
 
-    return NextResponse.json({ success: true, questionId, usersProcessed: users?.length ?? 0 });
+    return NextResponse.json({
+      success: true,
+      questionId,
+      usersProcessed: users?.length ?? 0,
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'twiddloo job failed.' }, { status: 500 });
   }

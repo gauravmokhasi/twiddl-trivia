@@ -11,6 +11,7 @@ import { loadQuestionReportSummary } from '@/lib/question-reports-server';
 import { PLAYABLE_QUESTION_COLUMNS, toPlayableQuestion, type PlayableQuestion } from '@/lib/playable-question';
 import { loadQuestionSecret } from '@/lib/question-secrets-server';
 import { correctAnswerText as describeSecret } from '@/lib/answer-grading';
+import { withholdsQuestionsFrom } from '@/lib/user-blocks-server';
 
 type Props = {
   params: Promise<{
@@ -34,6 +35,12 @@ export default async function QuestionPage({ params }: Props) {
   const question = questionData as PlayableQuestion | null;
 
   if (questionError || !question) {
+    notFound();
+  }
+
+  // A viewer this author has blocked gets the same 404 as a question that does
+  // not exist, so a direct URL never confirms the block or leaks the content.
+  if (await withholdsQuestionsFrom(question.author_id, currentUserId)) {
     notFound();
   }
 
@@ -96,6 +103,11 @@ export default async function QuestionPage({ params }: Props) {
           </div>
           <span className="text-xs text-zinc-500">{formatRelativeDate(question.created_at)}</span>
         </div>
+        {question.image_url ? (
+          <div className="mt-8 flex justify-center">
+            <img src={question.image_url} alt="Question image" className="max-h-64 max-w-full rounded-xl border border-white/[0.12] object-cover" />
+          </div>
+        ) : null}
         <p className="relative mt-10 max-w-3xl text-3xl font-bold leading-tight tracking-tight text-zinc-50 md:text-5xl">{question.text}</p>
       </section>
 

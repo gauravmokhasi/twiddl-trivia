@@ -5,6 +5,7 @@ import { readJsonBody } from '@/lib/api-guards';
 import { answeredResult, gradeAnswer, validateAnswer } from '@/lib/answer-grading';
 import { loadQuestionSecret } from '@/lib/question-secrets-server';
 import { captureServerEvent } from '@/lib/analytics-server';
+import { withholdsQuestionsFrom } from '@/lib/user-blocks-server';
 import type { Database } from '@/lib/database.types';
 
 type Answer = Database['public']['Tables']['answers']['Row'];
@@ -28,8 +29,13 @@ export async function GET(request: Request) {
   if (!data) return resultResponse({ hasAnswered: false });
 
   const { data: question, error: questionError } = await supabaseAdmin.from('questions')
-    .select('question_type, choices').eq('id', questionId).single();
+    .select('author_id, question_type, choices').eq('id', questionId).single();
   if (questionError || !question) return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
+  // The exact response a missing question gives: a reload of an answered
+  // question must neither confirm a block nor keep returning the answer key.
+  if (await withholdsQuestionsFrom(question.author_id, user.id)) {
+    return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
+  }
 
   try {
     const secret = await loadQuestionSecret(questionId);
@@ -53,6 +59,9 @@ export async function POST(request: Request) {
   const { data: question, error: questionError } = await supabaseAdmin.from('questions')
     .select('id, author_id, choices, question_type').eq('id', questionId).single();
   if (questionError || !question) return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
+  if (await withholdsQuestionsFrom(question.author_id, user.id)) {
+    return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
+  }
   if (question.author_id === user.id) {
     return NextResponse.json({ error: 'You cannot answer your own question.' }, { status: 403 });
   }

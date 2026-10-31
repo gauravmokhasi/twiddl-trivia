@@ -6,7 +6,6 @@ import {
   MAX_CHOICES,
   MAX_CHOICE_LENGTH,
   MAX_QUESTION_TEXT,
-  readJsonBody,
 } from '@/lib/api-guards';
 import { rateLimit } from '@/lib/rate-limit';
 import { answerQuestionAsTwiddloo, ensureTwiddloo } from '@/lib/twiddloo';
@@ -30,24 +29,35 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = await readJsonBody(request);
-  if (!body) {
-    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
-  }
-  const { text, questionType = 'multiple_choice', choices = [], correctAnswerIndex = -1, correctAnswer, isPublic } = body as {
-    text?: unknown;
-    questionType?: unknown;
-    choices?: unknown;
-    correctAnswerIndex?: unknown;
-    correctAnswer?: unknown;
-    isPublic?: unknown;
-  };
+  const formData = await request.formData();
+  const readField = (name: string): string => String(formData.get(name) ?? '').trim();
+  const imageFile = formData.get('image');
 
-  if (typeof text !== 'string' || !text.trim() || text.trim().length > MAX_QUESTION_TEXT) {
+  const text = readField('text');
+  const questionType = readField('questionType') || 'multiple_choice';
+  const choicesRaw = readField('choices');
+  const correctAnswerIndexRaw = readField('correctAnswerIndex');
+  const correctAnswer = readField('correctAnswer');
+  const isPublicRaw = readField('isPublic');
+
+  const isPublic = isPublicRaw === 'true';
+
+  let choices: string[] = [];
+  if (choicesRaw) {
+    try {
+      choices = JSON.parse(choicesRaw);
+    } catch {
+      return NextResponse.json({ error: 'Invalid choices format.' }, { status: 400 });
+    }
+  }
+
+  const correctAnswerIndex = correctAnswerIndexRaw ? Number(correctAnswerIndexRaw) : -1;
+
+  if (!text || text.length > MAX_QUESTION_TEXT) {
     return NextResponse.json({ error: `Question text is required (${MAX_QUESTION_TEXT} characters or fewer).` }, { status: 400 });
   }
 
-  if (!['multiple_choice', 'free_text'].includes(questionType as string)) {
+  if (!['multiple_choice', 'free_text'].includes(questionType)) {
     return NextResponse.json({ error: 'Missing question fields.' }, { status: 400 });
   }
 
@@ -67,9 +77,45 @@ export async function POST(request: Request) {
   }
 
   if (questionType === 'free_text') {
-    if (typeof correctAnswer !== 'string' || !correctAnswer.trim() || correctAnswer.trim().length > MAX_ANSWER_LENGTH) {
+    if (!correctAnswer || correctAnswer.length > MAX_ANSWER_LENGTH) {
       return NextResponse.json({ error: `Free-text questions need a correct answer (${MAX_ANSWER_LENGTH} characters or fewer).` }, { status: 400 });
     }
+  }
+
+  // --- Optional image upload -------------------------------------------------
+  const MAX_IMAGE_BYTES = 1024 * 1024; // 1 MB
+  const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png'];
+  let imageUrl: string | null = null;
+
+  if (imageFile && imageFile instanceof File) {
+    if (!ALLOWED_IMAGE_TYPES.includes(imageFile.type)) {
+      return NextResponse.json({ error: 'Image must be a JPG or PNG.' }, { status: 400 });
+    }
+    if (imageFile.size > MAX_IMAGE_BYTES) {
+      return NextResponse.json({ error: 'Image must be 1 MB or smaller.' }, { status: 400 });
+    }
+
+    const ext = imageFile.type === 'image/jpeg' ? 'jpg' : 'png';
+    const fileName = `${user.id}/${Date.now()}.${ext}`;
+    const arrayBuffer = await imageFile.arrayBuffer();
+
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from('question-images')
+      .upload(fileName, arrayBuffer, {
+        contentType: imageFile.type,
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      return NextResponse.json({ error: 'Failed to upload image.' }, { status: 500 });
+    }
+
+    const { data: publicUrlData } = supabaseAdmin.storage
+      .from('question-images')
+      .getPublicUrl(fileName);
+
+    imageUrl = publicUrlData.publicUrl;
   }
 
   const { hasAsked, error: dailyQuestionError } = await getDailyQuestionStatus(user.id);
@@ -94,12 +140,31 @@ export async function POST(request: Request) {
     p_correct_answer: questionType === 'free_text' ? (correctAnswer as string).trim() : null,
   });
 
-  if (insertError) {
-    if (isDailyQuestionLimitError(insertError)) {
-      return NextResponse.json(dailyQuestionLimitResponse(), { status: 403 });
+  const questionRow = insertedQuestion ?? null;
+  if (questionRow && imageUrl) {
+    const { error: imageUrlError } = await supabaseAdmin
+      .from('questions')
+      .update({ image_url: imageUrl })
+      .eq('id', questionRow.id);
+
+    if (imageUrlError) {
+      await supabaseAdmin.storage.from('question-images').remove([`${user.id}/${Date.now()}.jpg`]);
+      await supabaseAdmin.storage.from('question-images').remove([`${user.id}/${Date.now()}.png`]);
+      return NextResponse.json({ error: imageUrlError.message }, { status: 500 });
     }
+  }
+
+  if (isDailyQuestionLimitError(insertError)) {
+    return NextResponse.json(dailyQuestionLimitResponse(), { status: 403 });
+  }
+  if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
+
+  // The RPC returns the public row; merge in the image URL if we uploaded one.
+  const questionWithImage = questionRow
+    ? { ...questionRow, image_url: imageUrl ?? null }
+    : null;
 
   // Reached only once the question and its key are durably written by the same
   // transaction. A validation failure, a refused daily limit and a failed write
@@ -109,15 +174,16 @@ export async function POST(request: Request) {
   // Note this route is the human posting path only: twiddloo's own daily question
   // is created by the cron route through `seedTodaysTwiddlooQuestion`, so bot
   // activity never produces a `question_asked` here.
-  if (insertedQuestion) {
+  if (questionWithImage) {
     await captureServerEvent({
-      distinctId: user.id,
+      distinctId: user!.id,
       event: 'question_asked',
       properties: {
-        question_id: insertedQuestion.id,
-        question_type: insertedQuestion.question_type,
+        question_id: questionWithImage.id,
+        question_type: questionWithImage.question_type,
+        has_image: Boolean(questionWithImage.image_url),
       },
-      persistedId: insertedQuestion.id,
+      persistedId: questionWithImage.id,
     });
   }
 
@@ -127,7 +193,7 @@ export async function POST(request: Request) {
   // have in fact already asked today.
   try {
     await ensureTwiddloo();
-    if (insertedQuestion) await answerQuestionAsTwiddloo(insertedQuestion);
+    if (questionWithImage) await answerQuestionAsTwiddloo(questionWithImage);
   } catch (twiddlooError) {
     console.warn(`[questions] twiddloo did not answer the new question: ${twiddlooError instanceof Error ? twiddlooError.message : String(twiddlooError)}`);
   }
@@ -155,10 +221,10 @@ export async function DELETE(request: Request) {
 
   const { data: questionData, error: questionError } = await supabaseAdmin
     .from('questions')
-    .select('id, author_id, created_at')
+    .select('id, author_id, created_at, image_url')
     .eq('id', questionId)
     .single();
-  const question = questionData as { id: string; author_id: string; created_at: string } | null;
+  const question = questionData as { id: string; author_id: string; created_at: string; image_url: string | null } | null;
 
   if (questionError || !question) {
     return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
@@ -174,6 +240,20 @@ export async function DELETE(request: Request) {
 
   if (!verdict.allowed) {
     return NextResponse.json({ error: verdict.error }, { status: verdict.status });
+  }
+
+  // Remove the uploaded image from storage if one exists. File names are
+  // `${user.id}/${timestamp}.${ext}`, so we try both extensions.
+  if (question.image_url) {
+    try {
+      const url = new URL(question.image_url);
+      const fileName = url.pathname.split('/').pop();
+      if (fileName) {
+        await supabaseAdmin.storage.from('question-images').remove([fileName]);
+      }
+    } catch {
+      // Best-effort: don't block question deletion if image cleanup fails.
+    }
   }
 
   const { error: deleteError } = await (supabaseAdmin

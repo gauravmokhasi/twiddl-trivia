@@ -34,7 +34,14 @@ The app builds its sign-in redirect from `window.location.origin`, so every orig
 
 For a **fresh project**, run the setup SQL below, including the server-only creation function further down. It represents the final P0 + P1 schema.
 
-For an **existing deployment**, complete [P0_ROLLOUT.md](P0_ROLLOUT.md), then apply the single P1 migration using [P1_ROLLOUT.md](P1_ROLLOUT.md). Do not re-run the fresh setup or apply both P0 migrations automatically.
+For an **existing deployment**, complete [P0_ROLLOUT.md](P0_ROLLOUT.md), then apply the single P1 migration using [P1_ROLLOUT.md](P1_ROLLOUT.md). Do not re-run the fresh setup or apply both P0 migrations automatically. Then apply the two later migrations, in order, exactly once each:
+
+| Order | File | Adds |
+| --- | --- | --- |
+| 1 | `supabase/migrations/202610090001_p2_user_blocks.sql` | Private user blocking (`user_blocks` plus its triggers and policies). |
+| 2 | `supabase/migrations/202610090002_p3_reengagement_emails.sql` | Activity tracking, the re-engagement email preference, and the send bookkeeping. |
+
+Both files are idempotent (`if not exists` / `create or replace`) and run inside a transaction, so a re-run is harmless. P2 must be applied before P3 is deployed, and P3 before the re-engagement code is deployed. See [P2_P3_ROLLOUT.md](P2_P3_ROLLOUT.md) for the full rollout order and the live checks.
 
 Run the following SQL in Supabase SQL Editor:
 
@@ -49,7 +56,12 @@ create table if not exists profiles (
   display_name text,
   bio text,
   is_public boolean not null default true,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- P3: when this account was last genuinely used. Backfilled with the
+  -- migration time, so no long-dormant account looks inactive on day one.
+  last_active_at timestamptz not null default now(),
+  -- P3: consent for the occasional re-engagement email. Opt-in, never opt-out.
+  reengagement_emails_enabled boolean not null default false
 );
 
 -- follows table
@@ -113,7 +125,286 @@ create table if not exists question_reports (
 );
 
 create index if not exists question_reports_question_id_idx on question_reports (question_id);
+
+-- user_blocks: a private, one-directional block. blocker_id has blocked blocked_id.
+create table if not exists public.user_blocks (
+  blocker_id uuid not null references public.profiles(id) on delete cascade,
+  blocked_id uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (blocker_id, blocked_id),
+  constraint user_blocks_not_self check (blocker_id <> blocked_id)
+);
+
+create index if not exists user_blocks_blocked_id_idx on public.user_blocks (blocked_id);
+
+alter table public.user_blocks enable row level security;
+
+-- Only the user who created a block may see, create or remove it. There is no
+-- UPDATE policy: a block is immutable apart from being deleted.
+revoke all on public.user_blocks from anon;
+grant select, insert, delete on public.user_blocks to authenticated;
+grant all on public.user_blocks to service_role;
+
+drop policy if exists "Users can read their own blocks" on public.user_blocks;
+create policy "Users can read their own blocks"
+  on public.user_blocks for select
+  using (auth.uid() = blocker_id);
+
+drop policy if exists "Users can create their own blocks" on public.user_blocks;
+create policy "Users can create their own blocks"
+  on public.user_blocks for insert
+  with check (auth.uid() = blocker_id);
+
+drop policy if exists "Users can remove their own blocks" on public.user_blocks;
+create policy "Users can remove their own blocks"
+  on public.user_blocks for delete
+  using (auth.uid() = blocker_id);
+
+-- Blocking drops the existing follow in the blocked -> blocker direction.
+-- security definer so the cleanup happens whoever performs the insert; without
+-- it a browser-role insert could not delete another user's follow row under the
+-- existing follows DELETE policy (auth.uid() = follower_id).
+-- Deliberately NOT created on delete: unblocking must not recreate a follow.
+create or replace function public.remove_follows_on_block()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  delete from public.follows
+  where follower_id = NEW.blocked_id
+    and followee_id = NEW.blocker_id;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists user_blocks_remove_follows on public.user_blocks;
+create trigger user_blocks_remove_follows
+  after insert on public.user_blocks
+  for each row execute function public.remove_follows_on_block();
+
+-- The blocked user can never (re)create a follow onto the blocker.
+-- security definer because the policy on user_blocks would otherwise hide the
+-- blocker's block list from this check. The function only ever raises; it never
+-- modifies data.
+create or replace function public.refuse_blocked_follow()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if exists (
+    select 1 from public.user_blocks b
+    where b.blocker_id = NEW.followee_id
+      and b.blocked_id = NEW.follower_id
+  ) then
+    -- Deliberately uninformative: the reason must never reach the caller.
+    raise exception 'follow refused' using errcode = '23514';
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists follows_refuse_blocked on public.follows;
+create trigger follows_refuse_blocked
+  before insert or update on public.follows
+  for each row execute function public.refuse_blocked_follow();
+
+-- Browser roles can read questions straight from PostgREST using the anon key,
+-- so question visibility is also enforced in RLS, not only in app queries.
+-- The helper is security definer (user_blocks is private to the blocker) and is
+-- anchored on auth.uid(), so its answer is exactly the answer the policy itself
+-- would give: it cannot be used to inspect anyone else's block list.
+create or replace function public.is_blocked_from(p_blocker uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.user_blocks b
+    where b.blocker_id = p_blocker
+      and b.blocked_id = auth.uid()
+  );
+$$;
+
+grant execute on function public.is_blocked_from(uuid) to anon, authenticated, service_role;
+
+-- The "Questions are readable" policy is created in the RLS section further
+-- down, with the block check folded into it.
 ```
+
+The P3 migration (`supabase/migrations/202610090002_p3_reengagement_emails.sql`) adds the activity timestamp, the re-engagement preference and the send bookkeeping. Its full text is the authority; this is the same SQL, so a fresh project can run it here instead of the file:
+
+```sql
+-- --- Activity and preference -------------------------------------------------
+alter table public.profiles
+  add column if not exists last_active_at timestamptz not null default now();
+
+alter table public.profiles
+  add column if not exists reengagement_emails_enabled boolean not null default false;
+
+create index if not exists profiles_reengagement_candidates_idx
+  on public.profiles (last_active_at)
+  where reengagement_emails_enabled = true;
+
+-- --- Send bookkeeping --------------------------------------------------------
+-- One row per (user, inactivity period). The primary key is the duplicate-send
+-- guard. Tokens are stored only as opaque SHA-256 hashes.
+create table if not exists public.reengagement_sends (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  inactive_since timestamptz not null,
+  question_id uuid references public.questions(id) on delete set null,
+  link_hash text not null unique,
+  unsubscribe_hash text not null unique,
+  status text not null default 'sending' check (status in ('sending', 'sent', 'failed')),
+  error text,
+  created_at timestamptz not null default now(),
+  sent_at timestamptz,
+  failed_at timestamptz,
+  primary key (user_id, inactive_since)
+);
+
+alter table public.reengagement_sends enable row level security;
+
+-- No policies: browser roles must never see who was emailed, and must never be
+-- able to forge or clear a claim. Supabase default privileges would otherwise
+-- hand anon/authenticated a table grant, so revoke explicitly.
+revoke all on table public.reengagement_sends from public, anon, authenticated;
+grant all on table public.reengagement_sends to service_role;
+```
+
+```sql
+-- --- Eligibility -------------------------------------------------------------
+-- Reads auth.users, which PostgREST does not expose, so this must be security
+-- definer. It is not callable from the browser, and it takes an explicit limit.
+create or replace function public.reengagement_candidates(
+  p_inactive_hours integer,
+  p_limit integer
+) returns table (user_id uuid, email text, inactive_since timestamptz)
+language sql security definer stable
+set search_path = public, auth, pg_temp as $$
+  select p.id, p.email, p.last_active_at
+  from public.profiles p
+  join auth.users u on u.id = p.id
+  where p.reengagement_emails_enabled = true
+    and nullif(btrim(p.email), '') is not null
+    and p.last_active_at <= now() - make_interval(hours => greatest(coalesce(p_inactive_hours, 0), 0))
+    -- An existing claim for this exact inactivity period already covers the
+    -- user; a 'failed' row is deliberately re-eligible so the next run retries.
+    and not exists (
+      select 1 from public.reengagement_sends s
+      where s.user_id = p.id
+        and s.inactive_since = p.last_active_at
+        and s.status in ('sending', 'sent')
+    )
+    -- Eligible, existing, verified, unbanned, undeleted accounts only.
+    and u.email_confirmed_at is not null
+    and (u.banned_until is null or u.banned_until <= now())
+    and u.deleted_at is null
+  order by p.last_active_at asc
+  limit greatest(coalesce(p_limit, 0), 0);
+$$;
+
+-- Atomically claims the send for one user and inactivity period. Returns false
+-- when another run already holds the claim, which is what stops a duplicate.
+create or replace function public.claim_reengagement_send(
+  p_user_id uuid,
+  p_inactive_since timestamptz,
+  p_question_id uuid,
+  p_link_hash text,
+  p_unsubscribe_hash text
+) returns boolean
+language plpgsql security definer
+set search_path = public, pg_temp as $$
+declare
+  v_rows integer;
+begin
+  if p_user_id is null or p_inactive_since is null
+     or nullif(btrim(p_link_hash), '') is null
+     or nullif(btrim(p_unsubscribe_hash), '') is null then
+    return false;
+  end if;
+
+  insert into public.reengagement_sends
+    (user_id, inactive_since, question_id, link_hash, unsubscribe_hash, status)
+    values (p_user_id, p_inactive_since, p_question_id, p_link_hash, p_unsubscribe_hash, 'sending')
+    on conflict (user_id, inactive_since) do update
+    set status = 'sending',
+        question_id = excluded.question_id,
+        link_hash = excluded.link_hash,
+        unsubscribe_hash = excluded.unsubscribe_hash,
+        error = null,
+        failed_at = null,
+        sent_at = null,
+        created_at = now()
+    where public.reengagement_sends.status = 'failed';
+
+  get diagnostics v_rows = row_count;
+  return v_rows > 0;
+end;
+$$;
+
+-- Mark sent only after the provider accepted the message. Matched on the claim
+-- itself: a row nobody currently holds is never marked.
+create or replace function public.mark_reengagement_sent(
+  p_user_id uuid,
+  p_inactive_since timestamptz
+) returns boolean
+language plpgsql security definer
+set search_path = public, pg_temp as $$
+declare
+  v_rows integer;
+begin
+  update public.reengagement_sends
+    set status = 'sent', sent_at = now(), error = null
+  where user_id = p_user_id
+    and inactive_since = p_inactive_since
+    and status = 'sending';
+
+  get diagnostics v_rows = row_count;
+  return v_rows > 0;
+end;
+$$;
+
+-- Record the failure without the address or the message body. The row stays
+-- 'failed', which documents the attempt and lets the next daily run retry.
+create or replace function public.mark_reengagement_failed(
+  p_user_id uuid,
+  p_inactive_since timestamptz,
+  p_error text
+) returns void
+language plpgsql security definer
+set search_path = public, pg_temp as $$
+begin
+  update public.reengagement_sends
+    set status = 'failed', failed_at = now(), error = left(coalesce(p_error, 'unknown error'), 300)
+  where user_id = p_user_id
+    and inactive_since = p_inactive_since
+    and status = 'sending';
+end;
+$$;
+
+-- Browser roles get no execute on any of these: they are server-only.
+revoke execute on function public.reengagement_candidates(integer, integer)
+  from public, anon, authenticated;
+revoke execute on function public.claim_reengagement_send(uuid, timestamptz, uuid, text, text)
+  from public, anon, authenticated;
+revoke execute on function public.mark_reengagement_sent(uuid, timestamptz)
+  from public, anon, authenticated;
+revoke execute on function public.mark_reengagement_failed(uuid, timestamptz, text)
+  from public, anon, authenticated;
+
+grant execute on function public.reengagement_candidates(integer, integer) to service_role;
+grant execute on function public.claim_reengagement_send(uuid, timestamptz, uuid, text, text) to service_role;
+grant execute on function public.mark_reengagement_sent(uuid, timestamptz) to service_role;
+grant execute on function public.mark_reengagement_failed(uuid, timestamptz, text) to service_role;
+```
+
+`last_active_at` and `reengagement_emails_enabled` are deliberately **not** in the browser column grant on `profiles` (see the permissions block below), so a browser role can read neither the activity timestamp nor the preference. The server-side paths use the service role.
 
 Seed twiddloo and its initial relationships (safe to run again):
 
@@ -259,8 +550,14 @@ create policy "Users can follow as themselves"
 create policy "Users can delete their follows"
   on follows for delete using (auth.uid() = follower_id);
 
+drop policy if exists "Questions are readable" on questions;
 create policy "Questions are readable"
-  on questions for select using (is_public = true or auth.uid() = author_id);
+  on questions for select using (
+    -- The block check is separate from public visibility, so an unrelated user
+    -- still reads the question while the blocked user does not.
+    (is_public = true or auth.uid() = author_id)
+    and not public.is_blocked_from(author_id)
+  );
 
 create policy "Answers are readable by participants"
   on answers for select using (
@@ -396,7 +693,7 @@ No browser policies are added for `question_secrets`: keys are read only by trus
 
 Email stays in `profiles` for server-side account synchronization. Browser SELECT grants allow only `id`, `username`, `display_name`, `bio`, `is_public`, and `created_at`; `SELECT *` and requests filtering/ordering by email will fail for browser roles. The app uses explicit profile selections; account UI gets the signed-in user's own email from Supabase Auth.
 
-“Unlisted” means excluded from Universe discovery, while still reachable by handle. It does not require follower approval.
+“Unlisted” means excluded from Universe discovery, while still reachable by handle. It does not require follower approval. On another viewer's profile, unlisted profiles are also withheld from the follower and following lists and replaced by a bare aggregate count; the owner still sees their own lists in full.
 
 No policies are added for `question_reports` on purpose. The table is written only by the report API route and read only for the question's author, both through the service-role client, so no browser or session client should touch it at all.
 
@@ -424,7 +721,12 @@ NEXT_PUBLIC_SUPABASE_URL=https://xyzcompany.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 CRON_SECRET=your-random-cron-secret
+NEXT_PUBLIC_SITE_URL=https://your-domain.example
+BREVO_API_KEY=your-brevo-api-key
+BREVO_SENDER_EMAIL=you@your-domain.example
 ```
+
+`NEXT_PUBLIC_SITE_URL` is the origin the re-engagement emails build their links from, so it must be the origin a recipient can actually open. `BREVO_API_KEY` and `BREVO_SENDER_EMAIL` are what make the re-engagement email sendable; without them the daily cron run sends nothing and says so. The sender address must already be verified in Brevo. See `.env.local.example` for the optional limits (`REENGAGEMENT_MAX_SENDS`, `REENGAGEMENT_MAX_CANDIDATES`) and for the note that the inactivity threshold is a code constant, not a setting.
 
 ## 6) Install dependencies
 
@@ -458,7 +760,12 @@ insert into profiles (email, username, display_name, bio, is_public) values
 
 - Keep `SUPABASE_SERVICE_ROLE_KEY` server-only.
 - Do not commit `.env.local`.
-- Existing deployments: apply P0 PREPARE, deploy the P0 code, smoke-test, then apply CLEANUP. See `P0_ROLLOUT.md`. After that, apply the single P1 migration before deploying P1; see `P1_ROLLOUT.md`.
+- Existing deployments: apply P0 PREPARE, deploy the P0 code, smoke-test, then apply CLEANUP. See `P0_ROLLOUT.md`. After that, apply the single P1 migration before deploying P1; see `P1_ROLLOUT.md`. Then apply `202610090001_p2_user_blocks.sql` before deploying private blocking, and `202610090002_p3_reengagement_emails.sql` before deploying the re-engagement code. See `P2_P3_ROLLOUT.md`.
+- Private blocking is enforced twice: by RLS and triggers (which cover browser and direct PostgREST access) and by the service-role reads and API routes (which bypass RLS). Neither layer discloses that a block is the reason.
+- The re-engagement flow never emails anybody who has not opted in. `reengagement_emails_enabled` defaults to `false`, and the sign-in copy only discloses sign-in links, so existing accounts are not silently enrolled.
+- `last_active_at` and `reengagement_emails_enabled` are outside the browser column grant on `profiles`, so a browser role can read neither. `reengagement_sends` has no policies at all and its grants are revoked from `anon` and `authenticated`; only the service role and the four `security definer` functions can read or write it.
+- The sign-in token and the unsubscribe token are separate, and only their SHA-256 hashes are stored. An unsubscribe link therefore cannot be used to sign somebody in.
+- The unsubscribe link only ever reads its token from a POST body, so a mail scanner that follows links cannot unsubscribe anybody by itself. It only disables the re-engagement preference; every authentication email keeps flowing.
 - Never expose `question_secrets` or re-grant browser writes to `questions`/`answers`. Answer results reveal keys only after a successfully persisted answer (or to the question author).
 - Keep browser email SELECT grants revoked, including table-wide and column-specific grants.
 - All application question creation (including twiddloo) uses `create_question_with_secret`; the database enforces one post per rolling 24 hours per author. A slightly early/overlapping bot invocation returns the existing question rather than posting twice.

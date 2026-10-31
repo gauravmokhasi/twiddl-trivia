@@ -59,6 +59,7 @@ export interface Database {
           question_type: 'multiple_choice' | 'free_text';
           is_public: boolean;
           created_at: string;
+          image_url: string | null;
         };
         Insert: {
           id?: string;
@@ -68,6 +69,7 @@ export interface Database {
           question_type?: 'multiple_choice' | 'free_text';
           is_public?: boolean;
           created_at?: string;
+          image_url?: string | null;
         };
         Update: {
           text?: string;
@@ -75,6 +77,7 @@ export interface Database {
           question_type?: 'multiple_choice' | 'free_text';
           is_public?: boolean;
           created_at?: string;
+          image_url?: string | null;
         };
         Relationships: [];
       };
@@ -145,6 +148,24 @@ export interface Database {
           created_at?: string;
         };
         Update: {
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      user_blocks: {
+        Row: {
+          blocker_id: string;
+          blocked_id: string;
+          created_at: string;
+        };
+        Insert: {
+          blocker_id: string;
+          blocked_id: string;
+          created_at?: string;
+        };
+        Update: {
+          blocker_id?: string;
+          blocked_id?: string;
           created_at?: string;
         };
         Relationships: [];

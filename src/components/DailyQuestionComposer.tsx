@@ -56,6 +56,8 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
   const [correctAnswer, setCorrectAnswer] = useState('');
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [image, setImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   // localStorage is client-only: lazy initializers run only on the client, so
   // SSR keeps the defaults and never mismatches a persisted "hidden"/"off".
   const [guidanceVisible, setGuidanceVisible] = useState<boolean>(() => getStoredGuidancePreference());
@@ -130,7 +132,7 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
     router.refresh();
   };
 
-  const submitQuestion = async (questionText: string) => {
+  const submitQuestion = async (questionText: string, imageFile: File | null) => {
     if (!session) {
       setMessage('Please sign in before asking a question.');
       return;
@@ -153,20 +155,35 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
       return;
     }
 
+    if (imageFile && imageFile.size > 1024 * 1024) {
+      setMessage('Image must be 1 MB or smaller.');
+      return;
+    }
+
     setIsSaving(true);
 
     try {
+      const formData = new FormData();
+      formData.append('text', questionText.trim());
+      formData.append('questionType', questionType);
+      formData.append(
+        'choices',
+        JSON.stringify(questionType === 'multiple_choice' ? choicePayload.choices : []),
+      );
+      formData.append(
+        'correctAnswerIndex',
+        String(questionType === 'multiple_choice' ? choicePayload.correctAnswerIndex : -1),
+      );
+      formData.append(
+        'correctAnswer',
+        questionType === 'free_text' ? correctAnswer.trim() : '',
+      );
+      formData.append('isPublic', 'true');
+      if (imageFile) formData.append('image', imageFile);
+
       const response = await fetch('/api/questions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: questionText.trim(),
-          questionType,
-          choices: questionType === 'multiple_choice' ? choicePayload.choices : [],
-          correctAnswerIndex: questionType === 'multiple_choice' ? choicePayload.correctAnswerIndex : -1,
-          correctAnswer: questionType === 'free_text' ? correctAnswer.trim() : null,
-          isPublic: true,
-        }),
+        body: formData,
       });
 
       const data = await response.json().catch(() => null);
@@ -188,6 +205,8 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
       setChoices(['', '']);
       setCorrectAnswerIndex(0);
       setCorrectAnswer('');
+      setImage(null);
+      setImagePreview(null);
       clearAssistReview();
       // A new question is starting, so the next one gets its own single Twiddl Assist pass.
       setHasRunAiAssist(false);
@@ -273,7 +292,7 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
       }
     }
 
-    await submitQuestion(text);
+    await submitQuestion(text, image);
   };
 
   const handleUseSuggestion = () => {
@@ -293,7 +312,7 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
     setAiAssistReview(null);
     setMessage('');
     if (accuracyConcern) return;
-    await submitQuestion(text);
+    await submitQuestion(text, image);
   };
 
   /** The author accepted the accuracy hunch and wants to change the question themselves. */
@@ -312,7 +331,7 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
     setAccuracyDismissed(true);
     setAiAssistReview(null);
     setMessage('');
-    await submitQuestion(text);
+    await submitQuestion(text, image);
   };
 
   /** The hunch was unwanted: silence the check for good. It can be re-enabled from the profile page. */
@@ -523,6 +542,37 @@ export default function DailyQuestionComposer({ onAsked }: Props) {
             ) : null}
 
             {message ? <p className="text-sm text-zinc-300">{message}</p> : null}
+
+            {imagePreview ? (
+              <div className="mt-4 flex items-center gap-3">
+                <img src={imagePreview} alt="Preview" className="max-h-32 max-w-32 rounded-xl border border-white/[0.12]" />
+                <button
+                  type="button"
+                  className="button button-ghost text-xs"
+                  onClick={() => { setImage(null); setImagePreview(null); }}
+                >
+                  Remove image
+                </button>
+              </div>
+            ) : null}
+
+            <label className="mt-5 block">
+              <span className="block text-sm font-medium text-zinc-300 mb-2">Image (optional)</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                className="mt-1 block w-full text-sm text-zinc-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-500/20 hover:file:bg-violet-500/40"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  setImage(file);
+                  if (file) {
+                    setImagePreview(URL.createObjectURL(file));
+                  } else {
+                    setImagePreview(null);
+                  }
+                }}
+              />
+            </label>
 
             <button className="button button-primary" type="submit" disabled={isSaving}>
               {isSaving ? 'Saving...' : 'Submit question'}

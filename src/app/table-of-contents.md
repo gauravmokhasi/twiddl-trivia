@@ -8,7 +8,7 @@
 - `/universe` - Discover public profiles (24 per page)
 - `/notifications` - Daily digest of answers, question reports, and new followers, grouped by day
 - `/profile` - Redirect to the signed-in user's profile or request a username
-- `/profile/[username]` - Profile, privacy control, history, followers, following, correct-answer count, owner-only accuracy-check toggle, paged past-question archive (20 per page), plus delete controls on your own past questions
+- `/profile/[username]` - Profile, privacy control, history, followers, following, correct-answer count, owner-only accuracy-check toggle, paged past-question archive (20 per page), plus delete controls on your own past questions. Owners see their own follower/following lists in full; other viewers see only listed profiles plus an aggregate count of the withheld unlisted ones (`src/lib/follower-lists.ts`). Owners also see their blocked-user list; everyone else sees a Block control next to Follow (`src/components/block-button.tsx`)
 - `/questions/[id]` - Question details, answer form, fuzzy free-text grading, author-only answer summary, author-only question-quality reports, and an author delete control
 
 ## Question quality reports
@@ -40,6 +40,19 @@
 - `src/components/DeleteQuestionButton.tsx` - Two-tap delete control, used by the profile archive and the question page
 - Answers and quality reports are removed with their question through `on delete cascade`
 
+## Private blocking
+
+- `src/lib/user-blocks.ts` - The pure rules: excluding blocked authors from a question list, and the deliberately generic message a refused follow returns
+- `src/lib/user-blocks-server.ts` - The service-role side: create/remove a block, load the viewer's own block list, and `withholdsQuestionsFrom`, which maps a blocked question to the same 404 a missing one gives
+- `src/app/api/block/route.ts` - POST and DELETE, always with the signed-in user as the blocker (self-block is a 400, unknown profiles a 404)
+- `src/components/block-button.tsx` - Block and Unblock controls, used on the profile page
+- Blocking is enforced twice: by the database (RLS plus triggers, which cover browser and direct PostgREST access) and by the server (service-role reads plus API routes, which bypass RLS)
+- A block deletes the follow the blocked user already had, and unblocking does not bring it back
+- A blocked user cannot follow the blocker, and cannot read any of the blocker's questions from any access path: not the feed, not the question page, not the answers API, and not the reports API
+- The block list stays private: only the blocker can read their own rows, and nothing in the refusal text or the 404 states that a block is the reason
+- The reason a follow is refused is never disclosed: `/api/follow` returns the same message for every refused follow
+- A blocked user cannot be sent answers about a question they can no longer open, because the answers API returns 404 before accepting a submission
+- Existing questions are unaffected: blocking changes what the two parties may see, never what was written
 
 ## API routes
 
@@ -47,7 +60,8 @@
 - `/api/username` - Validate and save a unique username, checked against every handle and public name
 - `/api/profile-visibility` - Toggle Public/Unlisted profile discovery; handles remain reachable
 - `/api/profile-lookup` - Resolve a typed username (unauthenticated by design, throttled per IP)
-- `/api/follow` - Follow and unfollow users (404 for unknown profiles)
+- `/api/follow` - Follow and unfollow users (404 for unknown profiles; a blocked follow is refused with the same generic message as any other)
+- `/api/block` - Block or unblock a user, and only ever on your own behalf (400 for self-blocking, 404 for unknown profiles)
 - `/api/follow/status` - Read the current follow state
 - `/api/questions` - Create questions (server-side size caps, per-user throttle), and delete your own once they are a day old
 - `/api/answers` - Read or submit one answer per user per question (server-side size cap)

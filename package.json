@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --import tsx --test src/lib/pulse.test.ts src/lib/profile-identity.test.ts src/lib/question-choices.test.ts src/lib/question-deletion.test.ts src/lib/question-reports.test.ts src/lib/twiddl-assist.test.ts src/lib/notifications.test.ts src/lib/answer-grading.test.ts src/lib/p0-migrations.test.ts src/lib/daily-question-rule.test.ts src/lib/p1-migrations.test.ts src/lib/p2-experience.test.tsx src/lib/analytics.test.ts"
+    "test": "node --import tsx --test src/lib/pulse.test.ts src/lib/profile-identity.test.ts src/lib/question-choices.test.ts src/lib/question-deletion.test.ts src/lib/question-reports.test.ts src/lib/twiddl-assist.test.ts src/lib/notifications.test.ts src/lib/answer-grading.test.ts src/lib/p0-migrations.test.ts src/lib/daily-question-rule.test.ts src/lib/p1-migrations.test.ts src/lib/p2-experience.test.tsx src/lib/analytics.test.ts src/lib/follower-lists.test.ts src/lib/user-blocks.test.ts src/lib/reengagement-core.test.ts src/lib/p3-migrations.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

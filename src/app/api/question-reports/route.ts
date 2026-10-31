@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthenticatedUser } from '@/lib/auth-server';
 import { readJsonBody } from '@/lib/api-guards';
 import { isReportReason } from '@/lib/question-reports';
+import { withholdsQuestionsFrom } from '@/lib/user-blocks-server';
 import type { Database } from '@/lib/database.types';
 
 /**
@@ -48,6 +49,11 @@ export async function POST(request: Request) {
     const question = questionData as { id: string; author_id: string } | null;
 
     if (questionError || !question) {
+      return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
+    }
+
+    // Same 404 as a missing question, so filing a report cannot probe a block.
+    if (await withholdsQuestionsFrom(question.author_id, reporterId)) {
       return NextResponse.json({ error: 'Question not found.' }, { status: 404 });
     }
 

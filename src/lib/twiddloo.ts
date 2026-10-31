@@ -34,12 +34,24 @@ export async function ensureDefaultRelationshipsForUser(userId: string) {
 
   if (userId === TWIDDLOO_ID) return;
 
-  const { error: twiddlooFollowsUserError } = await (supabaseAdmin.from('follows') as any).upsert({
-    follower_id: TWIDDLOO_ID,
-    followee_id: userId,
-  }, { onConflict: ['follower_id', 'followee_id'] });
+  // If this user has blocked twiddloo, the follow trigger refuses the row the
+  // other way round. Skip that one insert rather than failing their whole
+  // sign-in sync; the user's own follow below is unaffected.
+  const { data: blockedBot } = await supabaseAdmin
+    .from('user_blocks')
+    .select('blocker_id')
+    .eq('blocker_id', userId)
+    .eq('blocked_id', TWIDDLOO_ID)
+    .maybeSingle();
 
-  if (twiddlooFollowsUserError) throw new Error(twiddlooFollowsUserError.message);
+  if (!blockedBot) {
+    const { error: twiddlooFollowsUserError } = await (supabaseAdmin.from('follows') as any).upsert({
+      follower_id: TWIDDLOO_ID,
+      followee_id: userId,
+    }, { onConflict: ['follower_id', 'followee_id'] });
+
+    if (twiddlooFollowsUserError) throw new Error(twiddlooFollowsUserError.message);
+  }
 
   const { data: existingFollow, error: existingFollowError } = await supabaseAdmin
     .from('follows')
@@ -287,7 +299,13 @@ export async function seedTodaysTwiddlooQuestion() {
   return insertTwiddlooQuestion(question);
 }
 
-/** Persists a twiddloo question in the shape Twiddl's question model expects. */
+/** Persists a twiddloo question in the shape Twiddl's question model expects.
+ *
+ * Twiddloo never posts images, to keep bandwidth predictable. The `image_url`
+ * column is deliberately left unset here (it defaults to null), and
+ * `create_question_with_secret` has no `p_image_url` parameter, so this path
+ * can never create a question with an image.
+ */
 async function insertTwiddlooQuestion(question: PoolQuestion) {
   const isMultipleChoice = question.questionType === 'multiple_choice';
 

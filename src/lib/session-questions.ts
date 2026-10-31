@@ -1,5 +1,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { PLAYABLE_QUESTION_COLUMNS, toPlayableQuestion, type PlayableQuestion } from './playable-question';
+import { excludeBlockedAuthors } from './user-blocks';
+import { loadAuthorsBlockedByViewer } from './user-blocks-server';
 
 export type SessionQuestion = PlayableQuestion & { author_username: string };
 
@@ -34,7 +36,23 @@ export async function unansweredSessionQuestions(options: Options): Promise<Sess
   if (publicOnly) questionsQuery = questionsQuery.eq('is_public', true);
 
   const { data: questionsData } = await questionsQuery;
-  const questions = (questionsData ?? []) as PlayableQuestion[];
+
+  // Anyone who has blocked the viewer is removed from every queue they could
+  // reach - feed, explore and profile play all come through here. Fail closed:
+  // if the block list cannot be read, no questions are served rather than an
+  // unfiltered list. This runs in trusted server code, before any row is
+  // rendered, so nothing reaches React to be hidden client-side.
+  let blockedAuthorIds: string[];
+  try {
+    blockedAuthorIds = await loadAuthorsBlockedByViewer(userId);
+  } catch {
+    return [];
+  }
+
+  const questions = excludeBlockedAuthors(
+    (questionsData ?? []) as PlayableQuestion[],
+    blockedAuthorIds,
+  );
   if (questions.length === 0) return [];
 
   const questionIds = questions.map((question) => question.id);

@@ -3,6 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthenticatedUser } from '@/lib/auth-server';
 import { readJsonBody } from '@/lib/api-guards';
 import { TWIDDLOO_ID } from '@/lib/twiddloo';
+import { FOLLOW_REFUSED_MESSAGE } from '@/lib/user-blocks';
+import { hasBlocked } from '@/lib/user-blocks-server';
 
 export async function POST(request: Request) {
   const body = await readJsonBody(request);
@@ -37,12 +39,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'That profile does not exist.' }, { status: 404 });
   }
 
+  // A refused follow looks exactly like any other failure: the wording never
+  // mentions blocks, so the caller cannot tell why it did not work.
+  if (await hasBlocked(followeeId, user.id)) {
+    return NextResponse.json({ error: FOLLOW_REFUSED_MESSAGE }, { status: 403 });
+  }
+
   const { error } = await (supabaseAdmin.from('follows') as any).upsert({
     follower_id: user.id,
     followee_id: followeeId,
   }, { onConflict: ['follower_id', 'followee_id'] });
 
   if (error) {
+    // A block can land between the check above and this insert, and the
+    // database trigger refuses it there. Re-check so the trigger's message is
+    // never echoed back, while unrelated failures keep their original copy.
+    if (await hasBlocked(followeeId, user.id)) {
+      return NextResponse.json({ error: FOLLOW_REFUSED_MESSAGE }, { status: 403 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

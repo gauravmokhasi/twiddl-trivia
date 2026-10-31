@@ -133,6 +133,11 @@ export default function TriviaSession({ questions, headerLabel = "Today's twiddl
           </Link>
           <span className="text-xs text-zinc-500">{formatRelativeDate(currentQuestion.created_at)}</span>
         </div>
+        {currentQuestion.image_url ? (
+          <div className="mt-8 flex justify-center">
+            <img src={currentQuestion.image_url} alt="Question image" className="max-h-64 max-w-full rounded-xl border border-white/[0.12] object-cover" />
+          </div>
+        ) : null}
         <p className="relative mt-8 text-3xl font-bold leading-tight tracking-tight text-zinc-50 md:text-4xl">{currentQuestion.text}</p>
       </article>
 
