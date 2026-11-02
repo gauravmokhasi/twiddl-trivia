@@ -58,11 +58,13 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     notFound();
   }
 
-  // If the current user has blocked this profile owner, refuse to render the
-  // profile page at all — even from a direct URL.
+  // If either user has blocked the other, refuse to render the profile page
+  // at all — even from a direct URL.
   if (currentUserId && currentUserId !== user.id) {
     try {
-      if (await hasBlocked(currentUserId, user.id)) {
+      const viewerBlockedOwner = await hasBlocked(currentUserId, user.id);
+      const ownerBlockedViewer = await withholdsQuestionsFrom(user.id, currentUserId);
+      if (viewerBlockedOwner || ownerBlockedViewer) {
         notFound();
       }
     } catch {
