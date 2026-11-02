@@ -47,7 +47,9 @@ create policy "Users can remove their own blocks"
   using (auth.uid() = blocker_id);
 
 -- ---------------------------------------------------------------------------
--- Blocking drops the existing follow in the blocked -> blocker direction.
+-- Blocking drops the existing follow in both directions:
+--   * blocked -> blocker (the blocked user's follow on the blocker)
+--   * blocker -> blocked (the blocker's follow on the blocked user)
 -- security definer so the cleanup happens whoever performs the insert; without
 -- it a browser-role insert could not delete another user's follow row under the
 -- existing follows DELETE policy (auth.uid() = follower_id).
@@ -63,6 +65,9 @@ begin
   delete from public.follows
   where follower_id = NEW.blocked_id
     and followee_id = NEW.blocker_id;
+  delete from public.follows
+  where follower_id = NEW.blocker_id
+    and followee_id = NEW.blocked_id;
   return NEW;
 end;
 $$;
