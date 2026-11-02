@@ -43,7 +43,7 @@ export default async function ProfilePage({ params, searchParams }: Props) {
   // Read profile using service-role client so RLS/permissions don't block server reads
   const { data: userData, error: userError } = await supabaseAdmin
     .from('profiles')
-    .select('id, username, display_name, bio, is_public, reengagement_emails_enabled')
+    .select('id, username, display_name, bio, is_public')
     .eq('username', username)
     .single();
   const user = userData as {
@@ -52,7 +52,6 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     display_name: string | null;
     bio: string | null;
     is_public: boolean;
-    reengagement_emails_enabled: boolean;
   } | null;
 
   if (userError || !user) {
