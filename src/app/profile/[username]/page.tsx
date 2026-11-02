@@ -58,6 +58,19 @@ export default async function ProfilePage({ params, searchParams }: Props) {
     notFound();
   }
 
+  // If the current user has blocked this profile owner, refuse to render the
+  // profile page at all — even from a direct URL.
+  if (currentUserId && currentUserId !== user.id) {
+    try {
+      if (await hasBlocked(currentUserId, user.id)) {
+        notFound();
+      }
+    } catch {
+      // Fail closed: if we can't read the block list, don't show the profile.
+      notFound();
+    }
+  }
+
   // Account settings remain available; other people's profiles still require today's question.
   await requireAskedToday({ profileOwnerId: user.id });
 
