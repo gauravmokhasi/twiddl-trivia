@@ -12,22 +12,25 @@ values ('question-images', 'question-images', true)
 on conflict (id) do nothing;
 
 -- Only authenticated users can upload; anyone can read (public bucket).
-create policy if not exists "Authenticated users can upload question images"
+drop policy if exists "Authenticated users can upload question images" on storage.objects;
+create policy "Authenticated users can upload question images"
 on storage.objects for insert
 to authenticated
 with check (bucket_id = 'question-images');
 
-create policy if not exists "Anyone can view question images"
+drop policy if exists "Anyone can view question images" on storage.objects;
+create policy "Anyone can view question images"
 on storage.objects for select
 to public
 using (bucket_id = 'question-images');
 
 -- Only the uploader (or service role) can delete; we handle deletion server-side
 -- when a question is removed, so browser delete is not exposed.
-create policy if not exists "Authenticated users can delete their own question images"
+drop policy if exists "Authenticated users can delete their own question images" on storage.objects;
+create policy "Authenticated users can delete their own question images"
 on storage.objects for delete
 to authenticated
-using (bucket_id = 'question-images' and (storage.folder_name(name))[1] = auth.uid()::text);
+using (bucket_id = 'question-images' and split_part(name, '/', 1) = auth.uid()::text);
 
 -- --- Questions table: optional image URL --------------------------------------
 alter table public.questions
