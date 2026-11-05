@@ -259,7 +259,7 @@ export async function seedTodaysTwiddlooQuestion() {
       correctAnswerIndex: 1,
       correctAnswer: null,
     },
-    {\n      text: 'What is the chemical symbol for gold?',\n      questionType: 'multiple_choice',\n      choices: ['Au', 'Ag', 'Fe'],\n      correctAnswerIndex: 0,\n      correctAnswer: null,\n    },\n    {\n      text: 'Who wrote the play Romeo and Juliet?',\n      questionType: 'free_text',\n      choices: [],\n      correctAnswerIndex: -1,\n      correctAnswer: 'William Shakespeare, Shakespeare',\n    },\n    {\n      text: 'In which year did the Titanic sink?',\n      questionType: 'multiple_choice',\n      choices: ['1912', '1905', '1920'],\n      correctAnswerIndex: 0,\n      correctAnswer: null,\n    },\n    {\n      text: 'What is the capital of Australia?',\n      questionType: 'multiple_choice',\n      choices: ['Canberra', 'Sydney', 'Melbourne'],\n      correctAnswerIndex: 0,\n      correctAnswer: null,\n    },\n    {\n      text: 'How many hearts does an octopus have?',\n      questionType: 'multiple_choice',\n      choices: ['3', '1', '2'],\n      correctAnswerIndex: 0,\n      correctAnswer: null,\n    },\n  ];
+  ];
 
   const { data: askedQuestionsData, error: askedQuestionsError } = await supabaseAdmin
     .from('questions')
