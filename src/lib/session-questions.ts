@@ -101,6 +101,16 @@ export async function unansweredSessionQuestions(options: Options): Promise<Sess
   }));
 }
 
+/** Get a single public question the user hasn't answered yet. */
+export async function getAvailablePublicQuestion(userId: string): Promise<{ question: SessionQuestion | null; hasUnanswered: boolean }> {
+  const unanswered = await unansweredSessionQuestions({ userId, publicOnly: true });
+
+  if (unanswered.length > 0) {
+    return { question: unanswered[0], hasUnanswered: true };
+  }
+  return { question: null, hasUnanswered: false };
+}
+
 /** Aggregate the complete profile-play collection rather than the displayed archive page. */
 export async function profileQuestionCounts(authorId: string, viewerId: string | null) {
   const { data, error } = await supabaseAdmin.rpc('profile_question_counts', {
