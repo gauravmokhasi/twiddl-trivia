@@ -70,7 +70,7 @@ export default function HomeFlow({ hasAskedToday, questions }: Props) {
       return <TriviaSession
         key={availableQuestion.id}
         questions={[availableQuestion]}
-        headerLabel="Available Question"
+        headerLabel='Available Question'
         endState={{
           eyebrow: 'Answer this question',
           title: 'A question from the community',
