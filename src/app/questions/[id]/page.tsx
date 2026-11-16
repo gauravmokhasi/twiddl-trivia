@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { formatRelativeDate } from '@/lib/utils';
 import QuestionAnswerForm from '@/components/QuestionAnswerForm';
 import DeleteQuestionButton from '@/components/DeleteQuestionButton';
+import AnswerSummary from '@/components/AnswerSummary';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthenticatedServerUser } from '@/lib/auth-server';
 import { requireAskedToday } from '@/lib/daily-question-gate';
@@ -120,32 +121,14 @@ export default async function QuestionPage({ params }: Props) {
         {question.question_type === 'free_text' ? (
           <p className="mt-1 text-xs text-zinc-500">Any aliases you accepted are separated by commas.</p>
         ) : null}
-        {!answerRows || answerRows.length === 0 ? (
-          <p className="mt-4 text-slate-700">No one has answered this question yet.</p>
-        ) : (
-          <div className="mt-4 space-y-3">
-            {answerRows.map((answer) => {
-              const responder = responderMap.get(answer.responder_id);
-              const pickedText = answer.answer_text ?? (answer.selected_choice_index === null ? 'No answer recorded' : question.choices[answer.selected_choice_index] ?? 'Unknown option');
-              return (
-                <div key={answer.id} className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
-                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="font-semibold text-zinc-200">{responder?.display_name ?? 'Unknown user'}</p>
-                      <p className="text-xs text-zinc-500">@{responder?.username ?? 'unknown'}</p>
-                    </div>
-                    <span className={`badge ${answer.is_correct ? 'bg-emerald-500/10 text-emerald-300' : 'bg-rose-500/10 text-rose-300'}`}>
-                      {answer.is_correct ? 'Correct' : 'Incorrect'}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm text-zinc-400">
-                    {question.question_type === 'free_text' ? 'Answered' : 'Chose'}: <span className="font-medium">{pickedText}</span>
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <AnswerSummary
+          questionType={question.question_type}
+          answerRows={answerRows ?? []}
+          responderMap={responderMap}
+          currentUserId={currentUserId}
+          authorId={question.author_id}
+          choices={question.choices}
+        />
         {/* The author can take their own question down, but not while it is still today's. */}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.07] pt-4">
           <p className="text-xs text-zinc-500">Deleting removes this question along with every answer and report attached to it.</p>

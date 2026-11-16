@@ -29,7 +29,21 @@ export type FollowDigestItem = {
   sampleFollowerUsernames: string[];
 };
 
-export type DigestItem = AnswerDigestItem | ReportDigestItem | FollowDigestItem;
+export type MarkedCorrectDigestItem = {
+  kind: 'marked_correct';
+  questionId: string;
+  questionText: string;
+  answerText: string;
+  markedByUsername: string | null;
+  markedAt: string;
+  latestAt: string;
+};
+
+export type DigestItem =
+  | AnswerDigestItem
+  | ReportDigestItem
+  | FollowDigestItem
+  | MarkedCorrectDigestItem;
 
 export type DigestDay = DigestDayBucket & {
   items: DigestItem[];
@@ -39,7 +53,7 @@ export function utcDayKey(value: string | Date): string {
   return (typeof value === 'string' ? new Date(value) : value).toISOString().slice(0, 10);
 }
 
-function dayLabel(day: string, todayKey: string, yesterdayKey: string): DigestDayBucket['label'] {
+export function dayLabel(day: string, todayKey: string, yesterdayKey: string): DigestDayBucket['label'] {
   if (day === todayKey) return 'TODAY';
   if (day === yesterdayKey) return 'YESTERDAY';
   const [year, month, date] = day.split('-').map(Number);
@@ -243,6 +257,13 @@ export function describeReportCount(count: number): string {
 export function describeFollowCount(count: number, sampleUsernames: string[]): string {
   if (count === 1 && sampleUsernames[0]) return `@${sampleUsernames[0]} followed you`;
   return count === 1 ? '1 person followed you' : `${count} people followed you`;
+}
+
+/** "@alice marked your answer correct". */
+export function describeMarkedCorrect(markedByUsername: string | null): string {
+  return markedByUsername
+    ? `@${markedByUsername} marked your answer correct`
+    : 'The question author marked your answer correct';
 }
 
 

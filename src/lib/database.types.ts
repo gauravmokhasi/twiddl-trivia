@@ -96,6 +96,8 @@ export interface Database {
           answer_text: string | null;
           is_correct: boolean;
           created_at: string;
+          marked_correct_by: string | null;
+          marked_correct_at: string | null;
         };
         Insert: {
           id?: string;
@@ -105,12 +107,16 @@ export interface Database {
           answer_text?: string | null;
           is_correct: boolean;
           created_at?: string;
+          marked_correct_by?: string | null;
+          marked_correct_at?: string | null;
         };
         Update: {
           selected_choice_index?: number;
           answer_text?: string | null;
           is_correct?: boolean;
           created_at?: string;
+          marked_correct_by?: string | null;
+          marked_correct_at?: string | null;
         };
         Relationships: [];
       };

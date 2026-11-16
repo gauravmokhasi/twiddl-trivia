@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {
   describeAnswerCount,
   describeFollowCount,
+  describeMarkedCorrect,
   describeReportCount,
   type DigestDay,
   type DigestItem,
@@ -22,12 +23,16 @@ function itemMonogram(item: DigestItem): string {
     return (item.sampleFollowerUsernames[0]?.charAt(0) ?? 'T').toUpperCase();
   }
   if (item.kind === 'reports') return '!';
+  if (item.kind === 'marked_correct') {
+    return (item.markedByUsername?.charAt(0) ?? 'M').toUpperCase();
+  }
   return (item.sampleResponderUsernames[0]?.charAt(0) ?? '?').toUpperCase();
 }
 
 function itemHeadline(item: DigestItem): string {
   if (item.kind === 'answers') return describeAnswerCount(item.count);
   if (item.kind === 'reports') return describeReportCount(item.count);
+  if (item.kind === 'marked_correct') return describeMarkedCorrect(item.markedByUsername);
   return describeFollowCount(item.count, item.sampleFollowerUsernames);
 }
 
@@ -61,7 +66,12 @@ export default function NotificationList({ days, ownUsername }: { days: DigestDa
           <p className="eyebrow">{day.label}</p>
           <ul className="card mt-3 divide-y divide-white/[0.06] p-0">
             {day.items.map((item) => {
-              const key = item.kind === 'follows' ? `follows:${day.day}` : `${item.kind}:${item.questionId}:${day.day}`;
+              const key =
+                item.kind === 'follows'
+                  ? `follows:${day.day}`
+                  : item.kind === 'marked_correct'
+                    ? `marked_correct:${item.questionId}:${item.answerText}:${item.latestAt}`
+                    : `${item.kind}:${item.questionId}:${day.day}`;
               return (
                 <li key={key}>
                   <Link href={itemHref(item, ownUsername)} className="group flex items-center gap-4 p-4 transition hover:bg-white/[0.03] md:px-5">
@@ -72,6 +82,9 @@ export default function NotificationList({ days, ownUsername }: { days: DigestDa
                       <span className="block text-sm font-semibold text-zinc-100">{itemHeadline(item)}</span>
                       {item.kind !== 'follows' ? (
                         <span className="mt-0.5 block truncate text-sm text-zinc-400">&ldquo;{item.questionText}&rdquo;</span>
+                      ) : null}
+                      {item.kind === 'marked_correct' && item.answerText ? (
+                        <span className="mt-0.5 block truncate text-sm text-zinc-400">Answer: "{item.answerText}"</span>
                       ) : null}
                       <span className="mt-1 block text-xs text-zinc-500">{formatRelativeDate(item.latestAt)}</span>
                     </span>
